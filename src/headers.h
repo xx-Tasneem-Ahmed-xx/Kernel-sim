@@ -7,23 +7,12 @@
 #include <string.h>
 #include "priorityQueue.h"
 #include "clk.h"
+#include "pcb.h"
 
-typedef enum {RUNNING, READY, BLOCKED} ProcessState;
-
-typedef struct PCB {
-    int pid;
-    int id_from_file;
-    int arrival_time;
-    int total_runtime;
-    int remaining_time;
-    int priority;
-    ProcessState state;
-} PCB;
-
-
-typedef struct Node {
-    PCB process;
-    struct Node* next;
-} Node;
+typedef enum {
+    HPF,
+    SRTN,
+    RR
+} SchedulingAlgorithm;
 
 #endif
