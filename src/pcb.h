@@ -1,6 +1,6 @@
 #ifndef PCB_H
 #define PCB_H
-#include "headers.h"
+
 
 typedef enum {READY, RUNNING, STOPPED, FINISHED} ProcessState;
 
@@ -27,5 +27,5 @@ extern Node* ready_Queue;
 void insert_process(PCB new_process, int algorithm);
 void remove_process(int id_from_file);
 PCB* pick_next_process();
-
+void print_ready_queue();
 #endif
