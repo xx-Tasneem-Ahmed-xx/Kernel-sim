@@ -9,10 +9,6 @@
 #include "clk.h"
 #include "pcb.h"
 
-typedef enum {
-    HPF,
-    SRTN,
-    RR
-} SchedulingAlgorithm;
+typedef enum { HPF, SRTN, RR } SchedulingAlgorithm;
 
 #endif

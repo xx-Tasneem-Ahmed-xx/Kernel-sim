@@ -1,6 +1,9 @@
+#include "headers.h"
 #include "pcb.h"
 
-void insert_Process(PCB new_process) {
+Node* ready_Queue = NULL;
+
+void insert_process(PCB new_process, int algorithm) {
     Node* new_node = (Node*)malloc(sizeof(Node));
     new_node->process = new_process;
     new_node->next = NULL;
@@ -41,7 +44,7 @@ void insert_Process(PCB new_process) {
     }
 }
 
-void remove_Process(int id_from_file) {
+void remove_process(int id_from_file) {
     if (ready_Queue == NULL) {
         return;
     }
@@ -71,4 +74,28 @@ PCB* pick_next_process() {
     if (ready_Queue == NULL)
         return NULL;
     return &(ready_Queue->process);
+}
+
+void print_ready_queue() {
+    Node *current = ready_Queue;
+
+    if (current == NULL) {
+        printf("The ready queue is empty.\n");
+        return;
+    }
+
+    printf("Ready Queue (sorted by priority):\n");
+    printf("PID\tPriority\tRemainging time\n");
+    printf("-----------------------------------------------------------------------------------\n");
+
+    while (current != NULL) {
+        PCB process = current->process;
+        printf("%d\t%d\t%d\n",
+               process.pid,
+               process.priority,
+               process.remaining_time
+        );
+
+        current = current->next;
+    }
 }
