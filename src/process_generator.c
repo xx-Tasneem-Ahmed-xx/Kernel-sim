@@ -7,9 +7,10 @@
 #include <sys/msg.h>   // for message queues
 #include <sys/wait.h>  // for wait()
 #include "clk.h"
-#include "priorityQueue.h"
-#include "Queue.h"
-#include "headers.h"
+
+#include "DS/priorityQueue.h"
+#include "DS/Queue.h"
+
 
 PriorityQueue pq;
 ProcessQueue ArrivalQueue;
@@ -31,6 +32,7 @@ void read_processes(char *filename, PriorityQueue *pq);
 SchedulingParams userUi();
 
 void initializeIPC();
+
 
 int main(int argc, char *argv[]) {
     (void) argc;
@@ -117,6 +119,7 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
 
 void initializeIPC() {
     msgq_key = ftok("keyfile", 'A');

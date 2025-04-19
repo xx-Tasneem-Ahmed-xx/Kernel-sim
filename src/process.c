@@ -1,12 +1,22 @@
 #include "clk.h"
+#include "signal.h"
 
-/* Modify this file as needed*/
+void termination_handler()
+{
+}
 
 void run_process(int runtime)
 {
-    sync_clk();
-    
-    //TODO: Keep running the process till its runtime is over
-    
+    signal(SIGTERM, termination_handler);
+
+    init_clk();
+    int start_time = get_clk();
+    while (1)
+    {
+        if (get_clk() == start_time + runtime)
+            break;
+    }
     destroy_clk(0);
+    raise(SIGTERM);
+    exit(0);
 }

@@ -5,11 +5,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+
+#include "DS/priorityQueue.h"
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/wait.h>
-#include "priorityQueue.h"
+
+
 #include "clk.h"
 #include "pcb.h"
 

@@ -6,6 +6,7 @@ CFLAGS = -Wall -Wextra -g
 
 # Directories
 SRC_DIR = .
+DS_DIR  = DS
 OBJ_DIR = obj
 BIN_DIR = bin
 
@@ -13,8 +14,8 @@ BIN_DIR = bin
 TARGET = $(BIN_DIR)/os-sim
 
 # Source and object files
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
+SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(DS_DIR)/*.c)
+OBJS = $(patsubst %.c, $(OBJ_DIR)/%.o, $(notdir $(SRCS)))
 
 # Default target
 all: $(TARGET)
@@ -26,6 +27,10 @@ $(TARGET): $(OBJS)
 
 # Build object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: $(DS_DIR)/%.c
 	@mkdir -p $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
