@@ -2,26 +2,24 @@
 #define PROCESS_QUEUE_H
 
 #include <stddef.h>
-#include "priorityQueue.h"  
-
-
+#include "../pcb.h"  // Changed to include pcb.h
 
 typedef struct {
-    Process* data;
+    PCB* data;       // Changed from Process* to PCB*
     size_t front;
     size_t rear;       
     size_t size;        
     size_t capacity;    
-} ProcessQueue;
+} PCBQueue;          // Renamed from ProcessQueue to PCBQueue
 
-void queue_init(ProcessQueue* q, size_t capacity);
-void queue_free(ProcessQueue* q);
-int queue_empty(ProcessQueue* q);
-int queue_full(ProcessQueue* q);
-void queue_resize(ProcessQueue* q, size_t new_capacity);
-void queue_enqueue(ProcessQueue* q, Process value);
-Process queue_front(ProcessQueue* q);
-void queue_dequeue(ProcessQueue* q);
-void queue_print(ProcessQueue* q);
+void queue_init(PCBQueue* q, size_t capacity);
+void queue_free(PCBQueue* q);
+int queue_empty(PCBQueue* q);
+int queue_full(PCBQueue* q);
+void queue_resize(PCBQueue* q, size_t new_capacity);
+void queue_enqueue(PCBQueue* q, PCB value);  // Now takes PCB instead of Process
+PCB queue_front(PCBQueue* q);               // Now returns PCB
+void queue_dequeue(PCBQueue* q);
+void queue_print(PCBQueue* q);
 
 #endif

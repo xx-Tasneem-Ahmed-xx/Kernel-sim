@@ -24,6 +24,10 @@ int total_cpu_time = 0;
 int start_time = -1;
 int end_time = 0;
 
+// Forward declarations
+void insert_process(PCB new_pcb, SchedulingAlgorithm algo);
+void context_switching(void);
+
 // Print the ready queue
 void print_ready_queue()
 {
@@ -77,9 +81,9 @@ void create_process(PCB new_pcb)
     pid_t pid = fork();
     if (pid == 0)
     {
-        char *args[] = {"./process.o", NULL};
+        char *args[] = {"./process", NULL};
         execvp(args[0], args);
-        exit(0); // Notify scheduler via SIGCHLD
+        exit(0);
     }
     else if (pid > 0)
     {
@@ -137,58 +141,17 @@ void run_SRTN_Algorithm()
 }
 
 
-int main()
-{
-    // init_ready_Queue();
-    algorithm = SRTN;
+void handle_process_arrival(PCB new_process) {
+   
+    new_process.remaining_time = new_process.total_runtime;
+    new_process.waiting_time = 0;
+    new_process.state = READY;
 
-    PCB processA;
-    PCB processB;
-    PCB processC;
-    PCB processD;
-    PCB processE;
-
-    processA.arrival_time = 0;
-    processB.arrival_time = 2;
-    processC.arrival_time = 4;
-    processD.arrival_time = 6;
-    processE.arrival_time = 8;
-
-    processA.remaining_time = 4;
-    processB.remaining_time = 2;
-    processC.remaining_time = 1;
-    processD.remaining_time = 7;
-    processE.remaining_time = 5;
-
-    create_process(processA);
-    create_process(processB);
-    create_process(processC);
-    create_process(processD);
-    create_process(processE);
-
-    // insert_process(processA, algorithm);
-    // insert_process(processB, algorithm);
-    // insert_process(processC, algorithm);
-    // insert_process(processD, algorithm);
-    // insert_process(processE, algorithm);
-
-    // print_ready_Queue();
-    process_count = 5;
-    run_SRTN_Algorithm();
-    // print_ready_Queue();
+    insert_process(new_process, algorithm);
 }
 
-void handle_process_arrival(Process new_process) {
-    PCB new_pcb;
-
-    new_pcb.id_from_file = new_process.id;
-    new_pcb.arrival_time = new_process.arrival_time;
-    new_pcb.total_runtime = new_process.run_time;
-    new_pcb.priority = new_process.priority;
-    new_pcb.remaining_time = new_process.run_time;
-    new_pcb.waiting_time = 0;
-    new_pcb.state = READY;
-
+// Update this function to handle PCB directly
+void handle_pcb_arrival(PCB new_pcb) {
     insert_process(new_pcb, algorithm);
 }
 
@@ -204,38 +167,194 @@ void get_message_ID(int *msgq_id, key_t *key) {
 }
 
 
-void receive_new_process(int msgq_id) {
-    if (msgq_id == -1) return;
+// void receive_new_process(int msgq_id) {
+//     if (msgq_id == -1) return;
 
-    MsgBuffer message;
+//     MsgBuffer message;
 
-    while (msgrcv(msgq_id, (void *) &message, sizeof(message.process), 1, IPC_NOWAIT) != -1) {
-        handle_process_arrival(message.process);
-        printf("\nScheduler: Received process runtime %d at arrival time %d\n",
-               message.process.run_time, message.process.arrival_time);
+//     while (msgrcv(msgq_id, (void *) &message, sizeof(message.pcb), 1, IPC_NOWAIT) != -1) {
+//         handle_process_arrival(message.pcb);
+//         printf("\nScheduler: Received process runtime %d at arrival time %d\n",
+//                message.pcb.execution_time, message.pcb.arrival_time);
+//     }
+// }
+
+int init_message_queue() {
+    int msgq_id;
+    key_t key;
+    key = ftok("keyfile", 'A');
+    msgq_id = msgget(key, 0666);
+
+    if (msgq_id == -1) {
+        perror("Scheduler: Error accessing message queue");
+        exit(EXIT_FAILURE);
+    }
+    
+    return msgq_id;
+}
+
+// Initialize feedback message queue for terminated processes
+int init_feedback_message_queue() {
+    int msgq_id;
+    key_t key;
+    key = ftok("keyfile", 'B'); // Using 'B' to differentiate from the main queue
+    msgq_id = msgget(key, IPC_CREAT | 0666);
+
+    if (msgq_id == -1) {
+        perror("Scheduler: Error creating feedback message queue");
+        exit(EXIT_FAILURE);
+    }
+    
+    return msgq_id;
+}
+
+int main(int argc, char *argv[]) {
+    algorithm = atoi(argv[1]); // 1=HPF, 2=SRTN, 3=RR
+    if (algorithm == RR && argc > 2) {
+        int quantum = atoi(argv[2]);
+        printf("Scheduler: Using Round Robin with quantum %d\n", quantum);
+    }
+
+    sync_clk(); 
+
+    int msgq_id = init_message_queue();
+    int feedback_msgq_id = init_feedback_message_queue();
+
+    printf("Scheduler: Waiting for processes...\n");
+    while (1) {
+        MsgBuffer message;
+        ssize_t r = msgrcv(msgq_id, &message, sizeof(message.pcb), 1, IPC_NOWAIT);
+        if (r > 0) {
+            printf("Scheduler: Received process ID %d, arrival %d, runtime %d, priority %d\n",
+                message.pcb.id_from_file, message.pcb.arrival_time,
+                message.pcb.total_runtime, message.pcb.priority);
+                handle_process_arrival(message.pcb); // Direct handling of PCB
+        }
+
+        // Scheduler logic here (e.g., pick next process, preempt, etc.)
+        // ...existing code...
+
+        usleep(100000); // Avoid busy waiting
+    }
+
+    destroy_clk(0); // Clean up clock resources
+    return 0;
+}
+
+// Context switching implementation
+void context_switching() {
+    if (current_process != NULL && current_process->state == RUNNING) {
+        current_process->state = READY;
+        printf("Context switch from process %d\n", current_process->pid);
+    }
+    // if (ready_Queue != NULL) {
+    //     current_process = ready_Queue;
+    //     current_process->state = RUNNING;
+    //     printf("Context switch to process %d\n", current_process->pid);
+    // }
+}
+
+void insert_process(PCB new_pcb, SchedulingAlgorithm algo) {
+    Node *new_node = (Node *)malloc(sizeof(Node));
+    if (!new_node) {
+        printf("Error: Memory allocation failed for new process node\n");
+        return;
+    }
+    
+    new_node->process = new_pcb;
+    new_node->next = NULL;
+    
+    if (ready_Queue == NULL) {
+        ready_Queue = new_node;
+        return;
+    }
+    
+    Node *current = ready_Queue;
+    Node *prev = NULL;
+    
+    switch (algo) {
+        case HPF:
+            while (current != NULL && current->process.priority <= new_pcb.priority) {
+                prev = current;
+                current = current->next;
+            }
+            break;
+            
+        case SRTN: 
+            while (current != NULL && current->process.remaining_time <= new_pcb.remaining_time) {
+                prev = current;
+                current = current->next;
+            }
+            break;
+            
+        case RR: 
+            while (current->next != NULL) {
+                current = current->next;
+            }
+            current->next = new_node;
+            return; 
+    }
+    
+    if (prev == NULL) {
+        new_node->next = ready_Queue;
+        ready_Queue = new_node;
+    } else {
+        new_node->next = current;
+        prev->next = new_node;
     }
 }
 
+void terminate_process(int pid) {
+    Node *current = ready_Queue;
+    Node *prev = NULL;
 
-// int main(int argc, char *argv[]) {
-//     algorithm = atoi(argv[1]); // 1=HPF, 2=SRTN, 3=RR
-//     sync_clk();
+    while (current != NULL && current->process.pid != pid) {
+        prev = current;
+        current = current->next;
+    }
 
-//     int msgq_id;
-//     key_t key;
-//     get_message_ID(&msgq_id, &key);
+    if (current == NULL) {
+        printf("Process with PID %d not found in the ready queue.\n", pid);
+        return;
+    }
+    
+    // Prepare process data to send back to process generator
+    PCB terminated_process = current->process;
+    int current_time = get_clk();
+    
+    // Create message containing process data
+    MsgBuffer termination_msg;
+    termination_msg.mtype = 2; // Use message type 2 for terminated processes
+    
+    // Set terminated state and update statistics before sending
+    terminated_process.state = TERMINATED;
+    terminated_process.execution_time = get_clk() - terminated_process.arrival_time;
+    
+    // Just send the complete PCB back
+    termination_msg.pcb = terminated_process;
+    
+    // Get the feedback message queue ID
+    key_t key = ftok("keyfile", 'B');
+    int feedback_msgq_id = msgget(key, 0666);
+    
+    if (feedback_msgq_id == -1) {
+        perror("Error accessing feedback message queue");
+    } else {
+        // Send the terminated process data back to process generator
+        if (msgsnd(feedback_msgq_id, &termination_msg, sizeof(termination_msg.pcb), 0) == -1) {
+            perror("Error sending terminated process data");
+        } else {
+            printf("Sent terminated process %d data back to process generator\n", pid);
+        }
+    }
 
+    // Remove process from ready queue
+    if (prev == NULL) {
+        ready_Queue = current->next;
+    } else {
+        prev->next = current->next; 
+    }
 
-//     printf("Scheduler: Waiting for message...\n");
-//     printf("key file is %d and msg qeueu id is %d", key, msgq_id);
-//     while (1) {
-//         int current_time = get_clk();
-//         receive_new_process(msgq_id);
-//         usleep(50000);
-//     }
-//     destroy_clk(0);
-//     printf("Scheduler: finished receiving...\n");
-//     // print_ready_queue();
-
-//     return 0;
-// }
+    free(current);
+    
+}

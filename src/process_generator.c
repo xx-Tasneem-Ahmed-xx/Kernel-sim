@@ -10,11 +10,12 @@
 
 #include "DS/priorityQueue.h"
 #include "DS/Queue.h"
+#include "headers.h"
 
 
-PriorityQueue pq;
-ProcessQueue ArrivalQueue;
-ProcessQueue BurstQueue;
+PriorityQueue pq; // Still using PriorityQueue for initial process data
+PCBQueue ArrivalQueue; // Changed from ProcessQueue
+PCBQueue BurstQueue;   // Changed from ProcessQueue
 
 // IPC variables
 int msgq_id;
@@ -33,16 +34,14 @@ SchedulingParams userUi();
 
 void initializeIPC();
 
+void receive_terminated_processes();
+
 
 int main(int argc, char *argv[]) {
-    (void) argc;
-    (void) argv;
-
     signal(SIGINT, clear_resources); // In case CTRL+C is pressed
 
     SchedulingParams params = userUi();
 
-    // Priority queue setup
     if (params.algorithm == SRTN) {
         pq_init(&pq, 20, SORT_BY_ARRIVAL_THEN_PRIORITY);
     } else {
@@ -80,7 +79,6 @@ int main(int argc, char *argv[]) {
     }
 
     // Parent (process_generator) continues
-
     sync_clk();
 
     Process p;
@@ -91,25 +89,40 @@ int main(int argc, char *argv[]) {
         }
 
         int current_time = get_clk();
-        // printf("current time: %d\n", current_time);
         while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
             p = pq_top(&pq);
-            queue_enqueue(&ArrivalQueue, p);
+            
+            // Convert Process to PCB before adding to ArrivalQueue
+            PCB new_pcb;
+            new_pcb.id_from_file = p.id;
+            new_pcb.pid = p.id; // Temporary PID, scheduler will assign the real one
+            new_pcb.arrival_time = p.arrival_time;
+            new_pcb.total_runtime = p.run_time;
+            new_pcb.remaining_time = p.run_time;
+            new_pcb.priority = p.priority;
+            new_pcb.waiting_time = 0;
+            new_pcb.execution_time = 0;
+            new_pcb.state = READY;
+            
+            queue_enqueue(&ArrivalQueue, new_pcb);
             pq_pop(&pq);
 
-            printf("Process %d arrived at time %d\n", p.id, current_time);
+            printf("Process %d arrived at time %d\n", new_pcb.id_from_file, current_time);
 
             MsgBuffer message;
             message.mtype = 1;
-            message.process = p;
+            message.pcb = new_pcb; // Sending PCB instead of Process
 
-            if (msgsnd(msgq_id, &message, sizeof(message.process), !IPC_NOWAIT) == -1) {
+            if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
                 perror("Error sending process to scheduler");
                 exit(EXIT_FAILURE);
             }
 
-            printf("Process %d sent to scheduler\n", p.id);
+            printf("Process %d sent to scheduler\n", new_pcb.id_from_file);
         }
+
+        // Check for terminated processes
+        receive_terminated_processes();
 
         usleep(100000); // sleep for 0.1 seconds
     }
@@ -135,6 +148,44 @@ void initializeIPC() {
     }
 
     printf("Message queue created successfully with ID: %d\n", msgq_id);
+    
+    // Initialize feedback message queue for terminated processes
+    key_t feedback_key = ftok("keyfile", 'B');
+    if (feedback_key == -1) {
+        perror("Error creating feedback message queue key");
+        exit(EXIT_FAILURE);
+    }
+
+    int feedback_msgq_id = msgget(feedback_key, IPC_CREAT | 0666);
+    if (feedback_msgq_id == -1) {
+        perror("Error creating feedback message queue");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Feedback message queue created successfully with ID: %d\n", feedback_msgq_id);
+}
+
+// Function to handle terminated processes
+void receive_terminated_processes() {
+    key_t feedback_key = ftok("keyfile", 'B');
+    int feedback_msgq_id = msgget(feedback_key, 0666);
+    
+    if (feedback_msgq_id == -1) {
+        return;  // Queue not ready yet
+    }
+    
+    MsgBuffer message;
+    // Receive all available terminated process messages (type 2)
+    while (msgrcv(feedback_msgq_id, &message, sizeof(message.pcb), 2, IPC_NOWAIT) != -1) {
+        PCB terminated_pcb = message.pcb;
+        
+        // Add to burst queue
+        queue_enqueue(&BurstQueue, terminated_pcb);
+        
+        printf("Process %d completed and added to Burst Queue\n", terminated_pcb.id_from_file);
+        printf("  Final stats: Arrival=%d, Total runtime=%d, Waiting time=%d\n", 
+               terminated_pcb.arrival_time, terminated_pcb.total_runtime, terminated_pcb.waiting_time);
+    }
 }
 
 SchedulingParams userUi() {

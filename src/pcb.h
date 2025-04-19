@@ -16,6 +16,7 @@ typedef struct PCB
     int id_from_file; // ID from input file
     int arrival_time;
     int total_runtime;  // turnaround_time ?
+    int run_time;        // total run time
     int remaining_time;
     int priority;
     int waiting_time;
