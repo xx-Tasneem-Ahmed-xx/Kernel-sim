@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include "priorityQueue.h"
+#include "DS/priorityQueue.h"
 #include "clk.h"
 #include "pcb.h"
 

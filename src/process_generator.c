@@ -8,8 +8,8 @@
 #include <sys/wait.h>  // for wait()
 #include <string.h>    // for strcmp
 #include "clk.h"
-#include "priorityQueue.h"
-#include "Queue.h"
+#include "DS/priorityQueue.h"
+#include "DS/Queue.h"
 
 PriorityQueue pq;
 ProcessQueue ArrivalQueue;
@@ -40,104 +40,104 @@ void read_processes(char* filename, PriorityQueue* pq);
 SchedulingParams userUi();
 void initializeIPC();
 
-int main(int argc, char* argv[])
-{
-    // Mark unused parameters
-    (void)argc;
-    (void)argv;
+// int main(int argc, char* argv[])
+// {
+//     // Mark unused parameters
+//     (void)argc;
+//     (void)argv;
     
-    SchedulingParams params = userUi();
+//     SchedulingParams params = userUi();
     
-    if (params.algorithm == SRTN) {
-        pq_init(&pq, 20, SORT_BY_ARRIVAL_THEN_PRIORITY);
-    } else {
-        pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
-    }
+//     if (params.algorithm == SRTN) {
+//         pq_init(&pq, 20, SORT_BY_ARRIVAL_THEN_PRIORITY);
+//     } else {
+//         pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
+//     }
     
-    queue_init(&ArrivalQueue, 20);
-    queue_init(&BurstQueue, 20);
+//     queue_init(&ArrivalQueue, 20);
+//     queue_init(&BurstQueue, 20);
     
-    read_processes("processes.txt", &pq);
-    // pq_print(&pq);
+//     read_processes("processes.txt", &pq);
+//     // pq_print(&pq);
     
-    initializeIPC();
+//     initializeIPC();
     
-    // pid_t scheduler_pid = fork();
-    // if (scheduler_pid == 0) {
-    //     char algorithm_str[10];
-    //     sprintf(algorithm_str, "%d", params.algorithm);
+//     // pid_t scheduler_pid = fork();
+//     // if (scheduler_pid == 0) {
+//     //     char algorithm_str[10];
+//     //     sprintf(algorithm_str, "%d", params.algorithm);
         
-    //     if (params.algorithm == RR) {
-    //         char quantum_str[10];
-    //         sprintf(quantum_str, "%d", params.quantum);
-    //         execl("./scheduler", "scheduler", algorithm_str, quantum_str, NULL);
-    //     } else {
-    //         execl("./scheduler", "scheduler", algorithm_str, NULL);
-    //     }
+//     //     if (params.algorithm == RR) {
+//     //         char quantum_str[10];
+//     //         sprintf(quantum_str, "%d", params.quantum);
+//     //         execl("./scheduler", "scheduler", algorithm_str, quantum_str, NULL);
+//     //     } else {
+//     //         execl("./scheduler", "scheduler", algorithm_str, NULL);
+//     //     }
         
-    //     // If execl fails
-    //     perror("Error executing scheduler");
-    //     exit(EXIT_FAILURE);
-    // }
+//     //     // If execl fails
+//     //     perror("Error executing scheduler");
+//     //     exit(EXIT_FAILURE);
+//     // }
     
-    pid_t clk_pid = fork();
-    if (clk_pid == 0)
-    {
-        // TODO:
-        // - A process should spawn at its arrival time
-        // - Spawn the scheduler for handling context switching
-        // sleep(1);
+//     pid_t clk_pid = fork();
+//     if (clk_pid == 0)
+//     {
+//         // TODO:
+//         // - A process should spawn at its arrival time
+//         // - Spawn the scheduler for handling context switching
+//         // sleep(1);
         
-        signal(SIGINT, clear_resources);
+//         signal(SIGINT, clear_resources);
         
-        Process p;
-        while (1) {
-            if (pq_empty(&pq))
-            {
-                printf("No more processes to schedule\n");
-                // Wait for a while to allow scheduler to finish executing
-                // sleep(5);
-                break;
-            }
+//         Process p;
+//         while (1) {
+//             if (pq_empty(&pq))
+//             {
+//                 printf("No more processes to schedule\n");
+//                 // Wait for a while to allow scheduler to finish executing
+//                 // sleep(5);
+//                 break;
+//             }
             
-            int current_time = get_clk();
+//             int current_time = get_clk();
             
-            while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
-            {
-                p = pq_top(&pq);
-                queue_enqueue(&ArrivalQueue, p);  // Fixed function name
-                pq_pop(&pq);
-                printf("Process %d arrived at time %d\n", p.id, current_time);
+//             while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
+//             {
+//                 p = pq_top(&pq);
+//                 queue_enqueue(&ArrivalQueue, p);  // Fixed function name
+//                 pq_pop(&pq);
+//                 printf("Process %d arrived at time %d\n", p.id, current_time);
                 
-                // MsgBuffer message;
-                // message.mtype = 1;  // Message type 1 for new process
-                // message.process = p;
+//                 // MsgBuffer message;
+//                 // message.mtype = 1;  // Message type 1 for new process
+//                 // message.process = p;
                 
-                // // Send the message
-                // if (msgsnd(msgq_id, &message, sizeof(message.process), !IPC_NOWAIT) == -1) {
-                //     perror("Error sending message to scheduler");
-                //     exit(EXIT_FAILURE);
-                // }
+//                 // // Send the message
+//                 // if (msgsnd(msgq_id, &message, sizeof(message.process), !IPC_NOWAIT) == -1) {
+//                 //     perror("Error sending message to scheduler");
+//                 //     exit(EXIT_FAILURE);
+//                 // }
                 
-                // printf("Process %d sent to scheduler\n", p.id);
-            }
+//                 // printf("Process %d sent to scheduler\n", p.id);
+//             }
             
-            usleep(100000);  
-        }
-    }
-    else
-    {
-        init_clk();
-        sync_clk();
-        run_clk();
-    }
+//             usleep(100000);  
+//         }
+//     }
+//     else
+//     {
+//         init_clk();
+//         sync_clk();
+//         run_clk();
+//     }
     
     
-    wait(NULL);
+//     wait(NULL);
     
-    clear_resources(0);
-    return 0;
-}
+//     clear_resources(0);
+//     return 0;
+// }
 
 void initializeIPC() {
 

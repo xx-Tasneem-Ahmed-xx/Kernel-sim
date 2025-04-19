@@ -1,31 +1,42 @@
 #ifndef PCB_H
 #define PCB_H
 
+typedef enum
+{
+    WAITING,
+    READY,
+    RUNNING,
+    STOPPED,
+    TERMINATED
+} ProcessState;
 
-typedef enum {READY, RUNNING, STOPPED, FINISHED} ProcessState;
-
-typedef struct PCB {
-    int pid;             // OS PID
-    int id_from_file;    // ID from input file
+typedef struct PCB
+{
+    int pid;          // OS PID
+    int id_from_file; // ID from input file
     int arrival_time;
-    int total_runtime;
+    int total_runtime;  // turnaround_time ?
     int remaining_time;
     int priority;
     int waiting_time;
+    int execution_time;
+    int child_pid;
+    int burst_time;
     ProcessState state;
 } PCB;
 
-typedef struct Node {
+typedef struct Node
+{
     PCB process;
-    struct Node* next;
+    struct Node *next;
 } Node;
 
 // Extern the head of the list
-extern Node* ready_Queue;
+extern Node *ready_Queue;
 
-// Function prototypes
-void insert_process(PCB new_process, int algorithm);
-void remove_process(int id_from_file);
-PCB* pick_next_process();
-void print_ready_queue();
+// // Function prototypes
+// void insert_process(PCB new_process, int algorithm);
+// void remove_process(int id_from_file);
+// PCB *pick_next_process();
+// // void print_ready_queue();
 #endif
