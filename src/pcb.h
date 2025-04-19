@@ -23,9 +23,12 @@ typedef struct Node {
 // Extern the head of the list
 extern Node* ready_Queue;
 
-// Function prototypes
+
 void insert_process(PCB new_process, int algorithm);
+
 void remove_process(int id_from_file);
+
 PCB* pick_next_process();
+
 void print_ready_queue();
 #endif
