@@ -1,4 +1,7 @@
 #include "scheduler.h"
+
+#include <sys/msg.h>
+
 #include "headers.h"
 #include <unistd.h>
 #include <sys/wait.h>
@@ -8,6 +11,7 @@
 #include "DS/minHeap.h"
 #include "process.h"
 #define MAX_PROCESSES 100
+
 
 SchedulingAlgorithm algorithm;
 Node *ready_Queue = NULL;
@@ -112,6 +116,7 @@ void run_SRTN_Algorithm()
     // Set up SIGCHLD handler
     // signal(SIGCHLD, handle_sigchld);
 
+
     MinHeap *mnHeap = create_min_heap();
 
     for (int i = 0; i < process_count; i++)
@@ -130,6 +135,7 @@ void run_SRTN_Algorithm()
     }
     print_minheap(mnHeap);
 }
+
 
 int main()
 {
@@ -170,6 +176,66 @@ int main()
     process_count = 5;
     run_SRTN_Algorithm();
     // print_ready_Queue();
-
-    return 0;
 }
+
+void handle_process_arrival(Process new_process) {
+    PCB new_pcb;
+
+    new_pcb.id_from_file = new_process.id;
+    new_pcb.arrival_time = new_process.arrival_time;
+    new_pcb.total_runtime = new_process.run_time;
+    new_pcb.priority = new_process.priority;
+    new_pcb.remaining_time = new_process.run_time;
+    new_pcb.waiting_time = 0;
+    new_pcb.state = READY;
+
+    insert_process(new_pcb, algorithm);
+}
+
+
+void get_message_ID(int *msgq_id, key_t *key) {
+    *key = ftok("keyfile", 'A');
+    *msgq_id = msgget(*key, IPC_CREAT | 0666);
+
+    if (*msgq_id == -1) {
+        perror("Error accessing message queue");
+        // exit(EXIT_FAILURE);
+    }
+}
+
+
+void receive_new_process(int msgq_id) {
+    if (msgq_id == -1) return;
+
+    MsgBuffer message;
+
+    while (msgrcv(msgq_id, (void *) &message, sizeof(message.process), 1, IPC_NOWAIT) != -1) {
+        handle_process_arrival(message.process);
+        printf("\nScheduler: Received process runtime %d at arrival time %d\n",
+               message.process.run_time, message.process.arrival_time);
+    }
+}
+
+
+// int main(int argc, char *argv[]) {
+//     algorithm = atoi(argv[1]); // 1=HPF, 2=SRTN, 3=RR
+//     sync_clk();
+
+//     int msgq_id;
+//     key_t key;
+//     get_message_ID(&msgq_id, &key);
+
+
+//     printf("Scheduler: Waiting for message...\n");
+//     printf("key file is %d and msg qeueu id is %d", key, msgq_id);
+//     while (1) {
+//         int current_time = get_clk();
+//         receive_new_process(msgq_id);
+//         usleep(50000);
+//     }
+//     destroy_clk(0);
+//     printf("Scheduler: finished receiving...\n");
+//     // print_ready_queue();
+
+//     return 0;
+// }
