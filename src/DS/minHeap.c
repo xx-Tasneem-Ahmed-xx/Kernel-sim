@@ -79,25 +79,27 @@ void destroy_min_heap(MinHeap *heap)
 }
 
 // Insert a process into the heap
-void insert_process_min_heap(MinHeap *heap, PCB process, int position)
+void insert_process_min_heap(MinHeap *heap, PCB *process, int position)
 {
     if (heap->size >= heap->capacity)
     {
         printf("Error: Heap is full\n");
         return;
     }
-    process.pid = position;
-    process.burst_time = process.remaining_time;
-    process.execution_time = 0;
-    process.waiting_time = 0;
-    process.total_runtime = 0;
-    process.state = WAITING;
-    process.child_pid = -1;
+    process->pid = position;
+    process->burst_time = process->remaining_time;
+    process->execution_time = 0;
+    process->waiting_time = 0;
+    process->total_runtime = 0;
+    process->state = WAITING;
+    process->child_pid = -1;
 
-    heap->processes[heap->size] = process;
+    heap->processes[heap->size] = *process;
+    int index = heap->size;
     heap->size++;
-    heapify_up(heap, heap->size - 1);
+    heapify_up(heap, index);  // Fixed: Should call heapify_up instead of heapify_down
 }
+
 
 // Extract the process with minimum remaining_time
 PCB *extract_min(MinHeap *heap)
@@ -106,18 +108,21 @@ PCB *extract_min(MinHeap *heap)
     {
         return NULL;
     }
-    if (heap->size == 1)
-    {
-        heap->size--;
-        return &heap->processes[0];
-    }
-
-    PCB *min = &heap->processes[0];
+    
+    // Store the minimum value
+    PCB min = heap->processes[0];
+    
+    // Move the last element to the root and reduce heap size
     heap->processes[0] = heap->processes[heap->size - 1];
     heap->size--;
+    
+    // Heapify the root
     heapify_down(heap, 0);
-
-    return min;
+    
+    // Return a copy of the minimum element
+    static PCB min_pcb;
+    min_pcb = min;
+    return &min_pcb;
 }
 
 // Update remaining_time for a process identified by child_pid
