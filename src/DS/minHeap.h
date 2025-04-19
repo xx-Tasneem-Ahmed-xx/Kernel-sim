@@ -18,7 +18,7 @@ typedef struct
 // Function prototypes
 MinHeap *create_min_heap();
 void destroy_min_heap(MinHeap *heap);
-void insert_process_min_heap(MinHeap *heap, PCB process,int position);
+void insert_process_min_heap(MinHeap *heap, PCB* process,int position);
 PCB *extract_min(MinHeap *heap);
 void update_remaining_time(MinHeap *heap, int child_pid, int new_time);
 void print_minheap(MinHeap *heap);
