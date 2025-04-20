@@ -77,6 +77,6 @@ void queue_print(ProcessQueue* q) {
         size_t index = (q->front + i) % q->capacity;
         printf("Process ID: %d, Arrival Time: %d, Run Time: %d, Priority: %d\n",
                q->data[index].id, q->data[index].arrival_time, 
-               q->data[index].run_time, q->data[index].priority);
+               q->data[index].execution_time, q->data[index].priority);
     }
 }

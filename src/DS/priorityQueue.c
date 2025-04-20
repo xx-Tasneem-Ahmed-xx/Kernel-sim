@@ -94,7 +94,7 @@ void pq_print(PriorityQueue* pq) {
     printf("Queue contents (size: %zu):\n", pq->size);
     for (size_t i = 0; i < pq->size; i++) {
         printf("Process ID: %d, Arrival Time: %d, Run Time: %d, Priority: %d\n",
-               pq->data[i].id, pq->data[i].arrival_time, pq->data[i].run_time, pq->data[i].priority);
+               pq->data[i].id, pq->data[i].arrival_time, pq->data[i].execution_time, pq->data[i].priority);
     }
     printf("Sort mode: %s\n", 
            pq->sort_mode == SORT_BY_ARRIVAL_TIME ? "Arrival Time Only" : "Arrival Time + Priority");

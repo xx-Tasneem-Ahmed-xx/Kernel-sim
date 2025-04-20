@@ -6,7 +6,7 @@
 struct process {
     int id;             
     int arrival_time;
-    int run_time;      
+    int execution_time;
     int priority;
 };
 

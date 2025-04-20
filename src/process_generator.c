@@ -7,9 +7,7 @@
 #include <sys/msg.h>   // for message queues
 #include <sys/wait.h>  // for wait()
 #include "clk.h"
-
-#include "DS/priorityQueue.h"
-#include "DS/Queue.h"
+#include "headers.h"
 
 
 PriorityQueue pq;
@@ -186,7 +184,7 @@ void read_processes(char *filename, PriorityQueue *pq) {
 
     while (fgets(line, sizeof(line), file)) {
         Process p;
-        if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.run_time, &p.priority) == 4) {
+        if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority) == 4) {
             pq_push(pq, p);
         }
     }

@@ -1,171 +1,137 @@
 #include "minHeap.h"
 #include "../pcb.h"
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+MinHeap *ready_Heap = NULL;
 // Helper functions for heap indices
 static int parent(int i) { return (i - 1) / 2; }
 static int left_child(int i) { return 2 * i + 1; }
 static int right_child(int i) { return 2 * i + 2; }
 
 // Swap two PCB structs
-static void swap(PCB *a, PCB *b)
-{
+static void swap(PCB *a, PCB *b) {
     PCB temp = *a;
     *a = *b;
     *b = temp;
 }
 
-// Heapify down to maintain min-heap property
-static void heapify_down(MinHeap *heap, int i)
-{
+// Heapify down to maintain heap property
+static void heapify_down(int i) {
     int smallest = i;
     int left = left_child(i);
     int right = right_child(i);
 
-    if (left < heap->size && heap->processes[left].remaining_time < heap->processes[smallest].remaining_time)
-    {
+    if (left < ready_Heap->size && ready_Heap->cmp(&ready_Heap->processes[left], &ready_Heap->processes[smallest]) <
+        0) {
         smallest = left;
     }
-    if (right < heap->size && heap->processes[right].remaining_time < heap->processes[smallest].remaining_time)
-    {
+    if (right < ready_Heap->size && ready_Heap->cmp(&ready_Heap->processes[right], &ready_Heap->processes[smallest]) <
+        0) {
         smallest = right;
     }
 
-    if (smallest != i)
-    {
-        swap(&heap->processes[i], &heap->processes[smallest]);
-        heapify_down(heap, smallest);
+    if (smallest != i) {
+        swap(&ready_Heap->processes[i], &ready_Heap->processes[smallest]);
+        heapify_down(smallest);
     }
 }
 
-// Heapify up to maintain min-heap property
-static void heapify_up(MinHeap *heap, int i)
-{
-    while (i > 0 && heap->processes[parent(i)].remaining_time > heap->processes[i].remaining_time)
-    {
-        swap(&heap->processes[i], &heap->processes[parent(i)]);
+// Heapify up to maintain heap property
+static void heapify_up(int i) {
+    while (i > 0 && ready_Heap->cmp(&ready_Heap->processes[i], &ready_Heap->processes[parent(i)]) < 0) {
+        swap(&ready_Heap->processes[i], &ready_Heap->processes[parent(i)]);
         i = parent(i);
     }
 }
 
-// Create a new min-heap
-MinHeap *create_min_heap()
-{
-    MinHeap *heap = (MinHeap *)malloc(sizeof(MinHeap));
-    if (!heap)
-    {
+// Create a new min-heap with a specific comparator
+MinHeap *create_min_heap(Comparator cmp) {
+    MinHeap *heap = (MinHeap *) malloc(sizeof(MinHeap));
+    if (!heap) {
         printf("Error: Memory allocation failed for MinHeap\n");
         exit(1);
     }
     heap->capacity = MAX_PROCESSES;
     heap->size = 0;
-    heap->processes = (PCB *)malloc(heap->capacity * sizeof(PCB));
-    if (!heap->processes)
-    {
+    heap->processes = (PCB *) malloc(heap->capacity * sizeof(PCB));
+    if (!heap->processes) {
         printf("Error: Memory allocation failed for processes array\n");
         free(heap);
         exit(1);
     }
+    heap->cmp = cmp;
     return heap;
 }
 
 // Destroy the min-heap
-void destroy_min_heap(MinHeap *heap)
-{
-    if (heap)
-    {
-        free(heap->processes);
-        free(heap);
+void destroy_min_heap() {
+    if (ready_Heap) {
+        free(ready_Heap->processes);
+        free(ready_Heap);
     }
 }
 
 // Insert a process into the heap
-void insert_process_min_heap(MinHeap *heap, PCB *process, int position)
-{
-    if (heap->size >= heap->capacity)
-    {
+void insert_process_min_heap(PCB *process) {
+    if (ready_Heap->size >= ready_Heap->capacity) {
         printf("Error: Heap is full\n");
         return;
     }
-    process->pid = position;
-    process->burst_time = process->remaining_time;
-    process->execution_time = 0;
-    process->waiting_time = 0;
-    process->total_runtime = 0;
-    process->state = WAITING;
-    process->child_pid = -1;
 
-    heap->processes[heap->size] = *process;
-    int index = heap->size;
-    heap->size++;
-    heapify_up(heap, index);  // Fixed: Should call heapify_up instead of heapify_down
+    PCB newProcess = *process;
+    ready_Heap->processes[ready_Heap->size] = newProcess;
+    int index = ready_Heap->size;
+    ready_Heap->size++;
+    heapify_up(index);
 }
 
-
-// Extract the process with minimum remaining_time
-PCB *extract_min(MinHeap *heap)
-{
-    if (heap->size == 0)
-    {
+// Extract the process with minimum priority (based on comparator)
+PCB *extract_min() {
+    if (ready_Heap->size == 0) {
         return NULL;
     }
-    
+
     // Store the minimum value
-    PCB min = heap->processes[0];
-    
-    // Move the last element to the root and reduce heap size
-    heap->processes[0] = heap->processes[heap->size - 1];
-    heap->size--;
-    
+    PCB min = ready_Heap->processes[0];
+
+    // Move last element to root and shrink heap
+    ready_Heap->processes[0] = ready_Heap->processes[ready_Heap->size - 1];
+    ready_Heap->size--;
+
     // Heapify the root
-    heapify_down(heap, 0);
-    
+    heapify_down(0);
+
     // Return a copy of the minimum element
     static PCB min_pcb;
     min_pcb = min;
     return &min_pcb;
 }
 
-// Update remaining_time for a process identified by child_pid
-void update_remaining_time(MinHeap *heap, int child_pid, int new_time)
-{
-    for (int i = 0; i < heap->size; i++)
-    {
-        if (heap->processes[i].child_pid == child_pid)
-        {
-            heap->processes[i].remaining_time = new_time;
-            heapify_up(heap, i);
-            heapify_down(heap, i);
+// Update remaining_time (or other fields depending on comparator) for a process identified by child_pid
+void update_remaining_time(int child_pid, int new_time) {
+    for (int i = 0; i < ready_Heap->size; i++) {
+        if (ready_Heap->processes[i].child_pid == child_pid) {
+            ready_Heap->processes[i].remaining_time = new_time;
+            heapify_up(i);
+            heapify_down(i);
             break;
         }
     }
 }
 
 // Print the heap (for debugging)
-void print_minheap(MinHeap *heap)
-{
+void print_minheap() {
     printf("Min-Heap (Ready Queue):\n");
-    for (int i = 0; i < heap->size; i++)
-    {
-        if (heap->processes[i].state != TERMINATED)
-        {
-            printf("Process %d: Arrival=%d, Remaining=%d, pid=%d State=%s\n",
-                   heap->processes[i].pid,
-                   heap->processes[i].arrival_time,
-                   heap->processes[i].remaining_time,
-                   heap->processes[i].pid,
-                   heap->processes[i].state == RUNNING ? "RUNNING" : heap->processes[i].state == WAITING ? "WAITING"
-                                                                                                         : "TERMINATED");
+    for (int i = 0; i < ready_Heap->size; i++) {
+        if (ready_Heap->processes[i].state != TERMINATED) {
+            printf("Process %d: Arrival=%d, Remaining=%d, PID=%d, State=%s, Priority=%d\n",
+                   ready_Heap->processes[i].id_from_file,
+                   ready_Heap->processes[i].arrival_time,
+                   ready_Heap->processes[i].remaining_time,
+                   ready_Heap->processes[i].id_from_file,
+                   ProcessStateNames[ready_Heap->processes[i].state],
+                   ready_Heap->processes[i].priority);
         }
     }
-}
-
-// Return pointer to processes array (for compatibility with prior code)
-PCB *get_ready_queue()
-{
-    static MinHeap *heap = NULL;
-    if (!heap)
-    {
-        heap = create_min_heap();
-    }
-    return heap->processes;
 }
