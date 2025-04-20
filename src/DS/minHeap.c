@@ -86,20 +86,13 @@ void insert_process_min_heap(MinHeap *heap, PCB *process, int position)
         printf("Error: Heap is full\n");
         return;
     }
-    process->pid = position;
-    process->burst_time = process->remaining_time;
-    process->execution_time = 0;
-    process->waiting_time = 0;
-    process->total_runtime = 0;
-    process->state = WAITING;
-    process->child_pid = -1;
-
-    heap->processes[heap->size] = *process;
+    
+    PCB newProcess = *process;
+    heap->processes[heap->size] = newProcess;
     int index = heap->size;
     heap->size++;
-    heapify_up(heap, index);  // Fixed: Should call heapify_up instead of heapify_down
+    heapify_up(heap, index);
 }
-
 
 // Extract the process with minimum remaining_time
 PCB *extract_min(MinHeap *heap)
@@ -108,31 +101,95 @@ PCB *extract_min(MinHeap *heap)
     {
         return NULL;
     }
-    
-    // Store the minimum value
-    PCB min = heap->processes[0];
-    
+
+    // Create a static PCB to return (avoids memory leaks)
+    static PCB min_pcb;
+    min_pcb = heap->processes[0];
+
     // Move the last element to the root and reduce heap size
     heap->processes[0] = heap->processes[heap->size - 1];
     heap->size--;
-    
-    // Heapify the root
-    heapify_down(heap, 0);
-    
-    // Return a copy of the minimum element
-    static PCB min_pcb;
-    min_pcb = min;
+
+    // Heapify the root only if the heap isn't empty now
+    if (heap->size > 0) {
+        heapify_down(heap, 0);
+    }
+
     return &min_pcb;
 }
 
-// Update remaining_time for a process identified by child_pid
-void update_remaining_time(MinHeap *heap, int child_pid, int new_time)
+// Check if a process with given pid exists in the heap
+int process_exists(MinHeap *heap, int pid)
 {
     for (int i = 0; i < heap->size; i++)
     {
-        if (heap->processes[i].child_pid == child_pid)
+        if (heap->processes[i].pid == pid)
+        {
+            return 1; // Process exists
+        }
+    }
+    return 0; // Process not found
+}
+
+// Update process in heap by pid
+void update_process(MinHeap *heap, PCB *updated_process)
+{
+    for (int i = 0; i < heap->size; i++)
+    {
+        if (heap->processes[i].pid == updated_process->pid)
+        {
+            // Update the process
+            heap->processes[i] = *updated_process;
+            
+            // Fix heap property
+            heapify_up(heap, i);
+            heapify_down(heap, i);
+            return;
+        }
+    }
+    
+    // If not found, insert it
+    if (!process_exists(heap, updated_process->pid)) {
+        insert_process_min_heap(heap, updated_process, updated_process->pid);
+    }
+}
+
+// Remove a process from the heap by pid
+void remove_process(MinHeap *heap, int pid)
+{
+    // Find the process
+    int i;
+    for (i = 0; i < heap->size; i++)
+    {
+        if (heap->processes[i].pid == pid)
+        {
+            break;
+        }
+    }
+    
+    // If process found
+    if (i < heap->size)
+    {
+        // Move the last element to this position
+        heap->processes[i] = heap->processes[heap->size - 1];
+        heap->size--;
+        
+        // Fix heap property
+        heapify_up(heap, i);
+        heapify_down(heap, i);
+    }
+}
+
+// Update remaining_time for a process identified by child_pid
+void update_remaining_time(MinHeap *heap, int pid, int new_time)
+{
+    for (int i = 0; i < heap->size; i++)
+    {
+        if (heap->processes[i].pid == pid)
         {
             heap->processes[i].remaining_time = new_time;
+            
+            // Fix heap property
             heapify_up(heap, i);
             heapify_down(heap, i);
             break;
