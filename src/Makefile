@@ -1,39 +1,27 @@
-# Makefile for the os-sim project
-
 # Compiler and flags
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -g
 
-# Directories
-SRC_DIR = .
-DS_DIR  = DS
-OBJ_DIR = obj
-BIN_DIR = bin
+# Source files
+SRCS = process_generator.c process.c clk.c scheduler.c minHeap.c priorityQueue.c Queue.c pcb.c comparators.c
 
-# Target executable
-TARGET = $(BIN_DIR)/os-sim
+# Object files
+OBJS = $(SRCS:.c=.o)
 
-# Source and object files
-SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(DS_DIR)/*.c)
-OBJS = $(patsubst %.c, $(OBJ_DIR)/%.o, $(notdir $(SRCS)))
+# Executable name
+TARGET = process_generator
 
-# Default target
+# Default rule
 all: $(TARGET)
 
-# Build the target executable
+# Link the object files to create executable
 $(TARGET): $(OBJS)
-	@mkdir -p $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)
 
-# Build object files
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(OBJ_DIR)
+# Compile .c to .o
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/%.o: $(DS_DIR)/%.c
-	@mkdir -p $(OBJ_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# Clean up build files
+# Clean up
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR)
+	rm -f $(OBJS) $(TARGET)
