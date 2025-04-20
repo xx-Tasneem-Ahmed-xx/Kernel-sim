@@ -4,12 +4,17 @@
 #include <stddef.h>
 
 struct process {
-    int id;             
+    int id;
     int arrival_time;
-    int run_time;      
+    int run_time;
     int priority;
-};
 
+    // RR-specific fields
+    int os_pid;           // PID after fork
+    int remaining_time;   // Remaining runtime
+    int started;          // Flag: 0 = not started, 1 = resumed
+    int start_time;       // Time when process first started
+};
 typedef struct process Process;
 
 typedef enum {
