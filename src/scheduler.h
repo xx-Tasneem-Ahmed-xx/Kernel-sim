@@ -15,7 +15,7 @@ void get_message_ID(int *msgq_id, key_t *key);
 
 void receive_new_process();
 
-void run_HPF_Algorithm();
+// void run_HPF_Algorithm();
 
 
 void run_SRTN_Algorithm();

@@ -108,8 +108,8 @@ int main(int argc, char *argv[])
             new_pcb.id_from_file = p.id;
             new_pcb.pid = p.id; // Temporary PID, scheduler will assign the real one
             new_pcb.arrival_time = p.arrival_time;
-            new_pcb.total_runtime = p.run_time;
-            new_pcb.remaining_time = p.run_time;
+            new_pcb.execution_time = p.execution_time;
+            new_pcb.remaining_time = p.execution_time;
             new_pcb.priority = p.priority;
             new_pcb.waiting_time = 0;
             new_pcb.execution_time = 0;
@@ -203,7 +203,7 @@ void receive_terminated_processes()
 
         printf("Process %d completed and added to Burst Queue\n", terminated_pcb.id_from_file);
         printf("  Final stats: Arrival=%d, Total runtime=%d, Waiting time=%d\n",
-               terminated_pcb.arrival_time, terminated_pcb.total_runtime, terminated_pcb.waiting_time);
+               terminated_pcb.arrival_time, terminated_pcb.execution_time, terminated_pcb.waiting_time);
     }
 }
 
@@ -261,8 +261,7 @@ void read_processes(char *filename, PriorityQueue *pq)
     while (fgets(line, sizeof(line), file))
     {
         Process p;
-        if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.run_time, &p.priority) == 4)
-        {
+        if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority) == 4) {
             pq_push(pq, p);
         }
     }
