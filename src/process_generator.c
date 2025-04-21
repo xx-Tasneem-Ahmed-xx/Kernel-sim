@@ -157,7 +157,6 @@ int main(int argc, char *argv[])
             new_pcb.priority = p.priority;
             new_pcb.waiting_time = 0;
             new_pcb.execution_time = 0;
-            new_pcb.state = READY;
             new_pcb.start_time=-1;
 
             queue_enqueue(&ArrivalQueue, new_pcb);
@@ -186,6 +185,10 @@ int main(int argc, char *argv[])
 
     printf("✅ All processes sent. Waiting 5 seconds for scheduler to finish...\n");
     sleep(5);
+
+    // Send completion signal to the scheduler
+    printf("Process Generator: All processes sent. Notifying scheduler...\n");
+    kill(scheduler_pid, SIGUSR1);
 
     wait(NULL); // Wait for children (scheduler + clock)
     clear_resources(0);

@@ -22,6 +22,7 @@ typedef struct PCB
     int waiting_time;
     int execution_time;
     int child_pid;
+    int last_prempt_time;
 
     ProcessState state;
 } PCB;
