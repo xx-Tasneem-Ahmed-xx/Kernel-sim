@@ -28,7 +28,7 @@ typedef enum { HPF, SRTN, RR } SchedulingAlgorithm;
 
 typedef struct {
     long mtype;
-    Process process;
+    PCB pcb;
 } MsgBuffer;
 
 
