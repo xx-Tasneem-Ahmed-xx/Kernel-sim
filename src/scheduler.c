@@ -242,20 +242,20 @@ void run_HPF_Algorithm()
            to_run->remaining_time);
 }
 
-void handle_process_arrival(Process new_process)
-{
-    PCB new_pcb;
+// void handle_process_arrival(Process new_process)
+// {
+//     PCB new_pcb;
 
-    new_pcb.id_from_file = new_process.id;
-    new_pcb.arrival_time = new_process.arrival_time;
-    new_pcb.execution_time = new_process.execution_time;
-    new_pcb.priority = new_process.priority;
-    new_pcb.remaining_time = new_process.execution_time;
-    new_pcb.waiting_time = 0;
-    new_pcb.state = READY;
+//     new_pcb.id_from_file = new_process.id;
+//     new_pcb.arrival_time = new_process.arrival_time;
+//     new_pcb.execution_time = new_process.execution_time;
+//     new_pcb.priority = new_process.priority;
+//     new_pcb.remaining_time = new_process.execution_time;
+//     new_pcb.waiting_time = 0;
+//     new_pcb.state = READY;
 
-    insert_process_min_heap(&new_pcb);
-}
+//     insert_process_min_heap(&new_pcb);
+// }
 
 void get_message_ID(int *msgq_id, key_t *key)
 {
@@ -396,22 +396,22 @@ void terminate_process(int pid)
     }
 }
 
-// void receive_new_process(int msgq_id) {
-//     if (msgq_id == -1) return;
+void receive_new_process(int msgq_id) {
+    if (msgq_id == -1) return;
 
-//     MsgBuffer message;
+    MsgBuffer message;
 
-//     while (msgrcv(msgq_id, (void *) &message, sizeof(message.pcb), 1, IPC_NOWAIT) != -1) {
-//         handle_process_arrival(message.pcb);
-//         printf("\nScheduler: Received.pcb runtime %d at arrival time %d\n",
-//                message.pcb.execution_time, message.pcb.arrival_time);
-//         printf("\n====================================MIN HEAP====================================\n");
-//         print_minheap();
+    while (msgrcv(msgq_id, (void *) &message, sizeof(message.pcb), 1, IPC_NOWAIT) != -1) {
+        insert_process_min_heap(&message.pcb);
+        printf("\nScheduler: Received.pcb runtime %d at arrival time %d\n",
+               message.pcb.execution_time, message.pcb.arrival_time);
+        printf("\n====================================MIN HEAP====================================\n");
+        print_minheap();
 
-//         // todo pick from min heap and run
-//         // create_process();
-//     }
-// }
+        // todo pick from min heap and run
+        // create_process();
+    }
+}
 
 // void run_algorithm(int algorithm) {
 //     // if (algorithm == HPF)
