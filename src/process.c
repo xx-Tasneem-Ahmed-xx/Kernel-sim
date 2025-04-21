@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <signal.h>
 #include "clk.h"
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 int remaining_time = 0;
 int id = -1;

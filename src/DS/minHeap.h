@@ -1,27 +1,33 @@
-#ifndef MINHEAP_H
-#define MINHEAP_H
+#ifndef MIN_HEAP_H
+#define MIN_HEAP_H
 
-#include <stdio.h>
-#include <stdlib.h>
 #include "../pcb.h"
+#include "../headers.h"
 
-#define MAX_PROCESSES 100
+#define MAX_PROCESSES 1024
 
-// Min-Heap struct
-typedef struct
-{
-    PCB *processes; // Dynamic array of PCB structs
-    int size;       // Current number of processes
-    int capacity;   // Maximum capacity (MAX_PROCESSES)
+typedef int (*Comparator)(PCB *, PCB *); // Comparator function pointer type
+
+typedef struct {
+    int capacity;
+    int size;
+    PCB* processes;
+    Comparator cmp;
 } MinHeap;
 
-// Function prototypes
-MinHeap *create_min_heap();
-void destroy_min_heap(MinHeap *heap);
-void insert_process_min_heap(MinHeap *heap, PCB* process,int position);
-PCB *extract_min(MinHeap *heap);
-void update_remaining_time(MinHeap *heap, int child_pid, int new_time);
-void print_minheap(MinHeap *heap);
-PCB *get_ready_queue(); // Returns pointer to processes array (for compatibility)
+extern MinHeap *ready_Heap;
 
-#endif
+// Function declarations
+MinHeap* create_min_heap(Comparator cmp);
+
+void destroy_min_heap();
+
+void insert_process_min_heap(PCB* process);
+
+PCB* extract_min();
+
+void update_remaining_time(int child_pid, int new_time);
+
+void print_minheap();
+
+#endif // MIN_HEAP_H
