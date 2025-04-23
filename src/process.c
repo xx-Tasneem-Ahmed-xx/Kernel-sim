@@ -3,74 +3,106 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/shm.h>
 
 int runtime = 0;
-int remaining_time = 0;
+int *shared_remaining_time = NULL; // Pointer to shared memory
+int shmid_p = -1;
 int is_running = 0;
 
-void termination_handler(int signum)
+void cleanup()
 {
-    printf("Process received SIGTERM, cleaning up...\n");
-    exit(0);
+    // Detach from shared memory
+    if (shared_remaining_time != NULL)
+    {
+        shmdt(shared_remaining_time);
+    }
 }
 
-void continue_handler(int signum)
-{
-    // Process resumed by scheduler
-    is_running = 1;
-    printf("Process resumed at time %d, remaining time: %d\n", get_clk(), remaining_time);
-}
-void stop_handler(int signum)
-{
-    // Process resumed by scheduler
-    is_running = 0;
-    printf("Process stopped at time %d, remaining time: %d\n", get_clk(), remaining_time);
-}
+// void continue_handler(int signum)
+// {
+//     // Process resumed by scheduler
+//     is_running = 1;
+//     printf("Process resumed at time %d, remaining time: %d\n", get_clk(), *shared_remaining_time);
+//     fflush(stdout);
+// }
 
-void run_process(int total_runtime)
+// void stop_handler(int signum)
+// {
+//     // Process stopped by scheduler
+//     is_running = 0;
+//     printf("Process stopped at time %d, remaining time: %d\n", get_clk(), *shared_remaining_time);
+//     fflush(stdout);
+// }
+
+void run_process(int total_runtime, int shared_mem_id)
 {
-    signal(SIGTERM, termination_handler);
-    signal(SIGCONT, continue_handler);
-    signal(SIGTSTP, stop_handler);
+
+    // Setup exit handler to clean up shared memory
+    atexit(cleanup);
+
+    // Attach to shared memory
+    shmid_p = shared_mem_id;
+    shared_remaining_time = (int *)shmat(shmid_p, NULL, 0);
+    if (shared_remaining_time == (int *)-1)
+    {
+        perror("Process: shmat failed");
+        exit(1);
+    }
+
+    // Initialize remaining time in shared memory
+    *shared_remaining_time = total_runtime;
 
     sync_clk();
 
-    remaining_time = total_runtime;
+    int currTime = get_clk();
+    int preTime = currTime;
 
-    // printf("REM %d\n", remaining_time);
-    // Process will be immediately stopped by scheduler after creation
-    // using SIGSTOP, so we wait until we're scheduled
-    while (remaining_time > 0)
+    printf("Process initialized with shared memory ID %d and rem time = %d \n", shmid_p, *shared_remaining_time);
+
+    while ((*shared_remaining_time) > 0)
     {
-        // Wait for SIGCONT from scheduler
-        while (!is_running)
-        {
-            pause();
-        }
+        // printf("Is running ? %d\n", is_running);
+        // printf("is running ? %d\n", is_running);
+        // Wait for SIGCONT from scheduler if we're stopped
+        // while (!is_running)
+        // {
+        //     pause();
+        // }
+        currTime = get_clk();
+        // printf("Process %d running at time %d, remaining time: %d\n", getpid(), currTime, *shared_remaining_time);
 
         // Do work for one time unit
-        // sleep(1); // Simulate one unit of work
-        remaining_time--;
+        if (currTime != preTime)
+        {
+            preTime = currTime;
+            (*shared_remaining_time)--;
+            printf("Process %d running at time %d, remaining time: %d\n",getpid(), get_clk(), *shared_remaining_time);
+        }
 
-        printf("Process ran for 1 time unit at time %d, remaining: %d\n", get_clk(), remaining_time);
+        // sleep(1); // 10ms delay
     }
 
     printf("Process finished at time %d\n", get_clk());
-    destroy_clk(0);
     exit(0);
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    // signal(SIGCONT, continue_handler);
+    // signal(SIGTSTP, stop_handler);
+    if (argc < 3)
     {
-        printf("Usage: %s <runtime>\n", argv[0]);
+        printf("Usage: %s <runtime> <shared_memory_id>\n", argv[0]);
         return 1;
     }
 
     runtime = atoi(argv[1]);
-    // printf("runtime sen\n",runtime);
-    run_process(runtime);
+    int shared_mem_id = atoi(argv[2]);
 
+    printf("Process %d starting with runtime=%d and shared memory ID=%d\n", getpid(), runtime, shared_mem_id);
+
+    run_process(runtime, shared_mem_id);
+    destroy_clk(0);
     return 0;
 }

@@ -17,6 +17,5 @@ void context_switching(void);
 
 void run_SRTN_Algorithm();
 
-void context_switching();
 
 #endif

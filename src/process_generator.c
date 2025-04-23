@@ -136,6 +136,7 @@ int main(int argc, char *argv[])
     Process p;
     while (1)
     {
+        // printf("current time: %d\n", get_clk());
         if (pq_empty(&pq))
         {
             printf("No more processes to schedule\n");
@@ -150,7 +151,6 @@ int main(int argc, char *argv[])
             // Convert Process to PCB before adding to ArrivalQueue
             PCB new_pcb;
             new_pcb.id_from_file = p.id;
-            new_pcb.pid = p.id; 
             new_pcb.arrival_time = p.arrival_time;
             new_pcb.execution_time = p.execution_time;
             new_pcb.remaining_time = p.execution_time;
@@ -183,8 +183,8 @@ int main(int argc, char *argv[])
         usleep(100000); // sleep for 0.1 seconds
     }
 
-    printf("✅ All processes sent. Waiting 5 seconds for scheduler to finish...\n");
-    sleep(5);
+    // printf("✅ All processes sent. Waiting 5 seconds for scheduler to finish...\n");
+    // sleep(5);
 
     // Send completion signal to the scheduler
     printf("Process Generator: All processes sent. Notifying scheduler...\n");
