@@ -153,10 +153,8 @@ int main(int argc, char *argv[])
             new_pcb.id_from_file = p.id;
             new_pcb.arrival_time = p.arrival_time;
             new_pcb.execution_time = p.execution_time;
-            new_pcb.remaining_time = p.execution_time;
             new_pcb.priority = p.priority;
             new_pcb.waiting_time = 0;
-            new_pcb.execution_time = 0;
             new_pcb.start_time=-1;
 
             queue_enqueue(&ArrivalQueue, new_pcb);

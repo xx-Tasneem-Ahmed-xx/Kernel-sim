@@ -91,8 +91,10 @@ void queue_print(PCBQueue *q)
     {
         size_t index = (q->front + i) % q->capacity;
         printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
-               q->data[index].id_from_file, q->data[index].pid,
-               q->data[index].arrival_time, q->data[index].execution_time,
-               q->data[index].remaining_time, q->data[index].priority);
+               q->data[index].id_from_file, q->data[index].pid, q->data[index].arrival_time,
+               q->data[index].execution_time, 
+               // Add dereferencing with NULL check for remaining_time pointer
+               (q->data[index].remaining_time != NULL ? *(q->data[index].remaining_time) : -1),
+               q->data[index].priority);
     }
 }
