@@ -93,6 +93,6 @@ void queue_print(PCBQueue *q)
         printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
                q->data[index].id_from_file, q->data[index].pid,
                q->data[index].arrival_time, q->data[index].execution_time,
-               q->data[index].remaining_time, q->data[index].priority);
+               *q->data[index].remaining_time, q->data[index].priority);
     }
 }
