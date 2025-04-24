@@ -19,22 +19,6 @@ void cleanup()
     }
 }
 
-// void continue_handler(int signum)
-// {
-//     // Process resumed by scheduler
-//     is_running = 1;
-//     printf("Process resumed at time %d, remaining time: %d\n", get_clk(), *shared_remaining_time);
-//     fflush(stdout);
-// }
-
-// void stop_handler(int signum)
-// {
-//     // Process stopped by scheduler
-//     is_running = 0;
-//     printf("Process stopped at time %d, remaining time: %d\n", get_clk(), *shared_remaining_time);
-//     fflush(stdout);
-// }
-
 void run_process(int total_runtime, int shared_mem_id)
 {
 
@@ -62,13 +46,7 @@ void run_process(int total_runtime, int shared_mem_id)
 
     while ((*shared_remaining_time) > 0)
     {
-        // printf("Is running ? %d\n", is_running);
-        // printf("is running ? %d\n", is_running);
-        // Wait for SIGCONT from scheduler if we're stopped
-        // while (!is_running)
-        // {
-        //     pause();
-        // }
+
         currTime = get_clk();
         // printf("Process %d running at time %d, remaining time: %d\n", getpid(), currTime, *shared_remaining_time);
 
@@ -77,7 +55,7 @@ void run_process(int total_runtime, int shared_mem_id)
         {
             preTime = currTime;
             (*shared_remaining_time)--;
-            printf("Process %d running at time %d, remaining time: %d\n",getpid(), get_clk(), *shared_remaining_time);
+            printf("Process %d running at time %d, remaining time: %d\n", getpid(), get_clk(), *shared_remaining_time);
         }
 
         // sleep(1); // 10ms delay
@@ -89,8 +67,7 @@ void run_process(int total_runtime, int shared_mem_id)
 
 int main(int argc, char *argv[])
 {
-    // signal(SIGCONT, continue_handler);
-    // signal(SIGTSTP, stop_handler);
+
     if (argc < 3)
     {
         printf("Usage: %s <runtime> <shared_memory_id>\n", argv[0]);

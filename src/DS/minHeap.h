@@ -23,7 +23,7 @@ MinHeap *create_min_heap(Comparator cmp);
 
 void heapify_down(int i);
 void heapify_up(int i);
-static void swap(PCB *a, PCB *b);
+// static void swap(PCB *a, PCB *b);
 void destroy_min_heap();
 
 void insert_process_min_heap(PCB *process);

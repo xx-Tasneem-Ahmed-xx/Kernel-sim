@@ -67,7 +67,7 @@ void update_process_remaining_time(PCB *process)
         int *shm_remaining_time = (int *)shmat(process->shm_id, NULL, 0);
         if (shm_remaining_time != (int *)-1)
         {
-            process->remaining_time = *shm_remaining_time;
+            process->remaining_time = shm_remaining_time;
             shmdt(shm_remaining_time);
         }
     }
@@ -170,7 +170,7 @@ void handle_process_arrival(PCB *process)
     {
         process->pid = pid;
         // sleep(1); // Give the child process time to start
-        kill(pid, SIGTSTP);
+        kill(pid, SIGSTOP);
     }
     if (algorithm == RR)
         queue_enqueue(&rr_queue, *process);
@@ -281,7 +281,7 @@ void preempt_process(PCB *process)
     process->state = READY;
     process->last_prempt_time = get_clk();
     printf("Preempting process %d\n", process->pid);
-    kill(process->pid, SIGTSTP);
+    kill(process->pid, SIGSTOP);
 }
 
 void context_switching()
@@ -300,7 +300,7 @@ void context_switching()
         {
             current_process = extract_min();
         }
-        if (current_process->start_time == -1)
+        if (current_process && current_process->start_time == -1)
             start_process(current_process);
         else
             resume_process(current_process);
@@ -314,7 +314,7 @@ void context_switching()
     // Preempt the current process
     preempt_process(current_process);
 
-    if (current_process->state != TERMINATED)
+    if (current_process && current_process->state != TERMINATED)
         if (algorithm == RR)
         {
             queue_enqueue(&rr_queue, *current_process);
@@ -346,7 +346,7 @@ void context_switching()
     }
 
     current_process = new_process;
-    if (current_process->start_time == -1)
+    if (current_process && current_process->start_time == -1)
         start_process(current_process);
     else
     {
@@ -364,6 +364,8 @@ void handle_sigchld(int signum)
     {
         printf("Child process with PID %d terminated\n", pid);
 
+        if (!current_process)
+            return;
         // Clean up shared memory
         if (current_process->shm_id != -1)
         {
@@ -473,7 +475,7 @@ void run_RR_Algorithm()
         update_process_remaining_time(current_process);
 
         // If process has finished, handle completion
-        if (current_process->remaining_time <= 0)
+        if (current_process && current_process->remaining_time <= 0)
         {
             printf("Process %d (PID %d) completed execution\n",
                    current_process->id_from_file, current_process->pid);
