@@ -14,16 +14,13 @@
 #include "DS/priorityQueue.h"
 #include "DS/Queue.h"
 
-PriorityQueue pq;      // Still using PriorityQueue for initial process data
-PCBQueue ArrivalQueue; // Changed from ProcessQueue
-PCBQueue BurstQueue;   // Changed from ProcessQueue
+PriorityQueue pq;
+PCBQueue ArrivalQueue;
+PCBQueue BurstQueue;
 
-// IPC variables
 int msgq_id;
 key_t msgq_key;
-
 pid_t scheduler_pid;
-
 
 typedef struct
 {
@@ -38,18 +35,13 @@ void initializeIPC();
 void receive_terminated_processes();
 void createProcess(PCB *process);
 
-
-
-
-
 int parse_args(int argc, char *argv[], SchedulingParams *params) {
     params->quantum = 0;
     params->filename = NULL;
-    params->algorithm = HPF; // default
+    params->algorithm = HPF;
 
     if (argc < 5) {
         fprintf(stderr, "Usage: %s -s <scheduling-algorithm> -f <processes-text-file> [-q <quantum>]\n", argv[0]);
-        fprintf(stderr, "Example: %s -s rr -f processes.txt -q 2\n", argv[0]);
         return 0;
     }
 
@@ -88,23 +80,30 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
 
 int main(int argc, char *argv[])
 {
-    signal(SIGINT, clear_resources); // In case CTRL+C is pressed
+    signal(SIGINT, clear_resources);
 
     SchedulingParams params;
     if (!parse_args(argc, argv, &params)) {
         exit(EXIT_FAILURE);
     }
-    
-    // Add divider and logging information about the scheduler configuration
+
     print_divider("OS Scheduler Simulation");
-    log_message(LOG_SYSTEM, "Starting simulation with %s algorithm", 
-        params.algorithm == HPF ? "HPF" : 
-        params.algorithm == SRTN ? "SRTN" : 
-        params.algorithm == RR ? "Round Robin (q=%d)" : "Unknown", 
-        params.quantum);
+
+    char algorithm_name[50];
+    if (params.algorithm == HPF) {
+        strcpy(algorithm_name, "HPF");
+    } else if (params.algorithm == SRTN) {
+        strcpy(algorithm_name, "SRTN");
+    } else if (params.algorithm == RR) {
+        sprintf(algorithm_name, "Round Robin (q=%d)", params.quantum);
+    } else {
+        strcpy(algorithm_name, "Unknown");
+    }
+
+    log_message(LOG_SYSTEM, "Starting simulation with %s algorithm", algorithm_name);
     log_message(LOG_INFO, "Loading processes from %s", params.filename);
-    
-    int process_count = 0; // Track number of processes sent
+
+    int process_count = 0;
 
     if (params.algorithm == SRTN)
     {
@@ -115,7 +114,6 @@ int main(int argc, char *argv[])
         pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
     }
     queue_init(&ArrivalQueue, 20);
-
 
     read_processes(params.filename, &pq);
     initializeIPC();
@@ -148,13 +146,11 @@ int main(int argc, char *argv[])
         run_clk();
     }
 
-    // Parent (process_generator) continues
     sync_clk();
 
     Process p;
     while (1)
     {
-        // Replace printf with log_message
         if (pq_empty(&pq))
         {
             log_message(LOG_INFO, "No more processes to schedule");
@@ -166,7 +162,6 @@ int main(int argc, char *argv[])
         {
             p = pq_top(&pq);
 
-            // Convert Process to PCB before adding to ArrivalQueue
             PCB *new_pcb = (PCB *)malloc(sizeof(PCB));
             new_pcb->id_from_file = p.id;
             new_pcb->arrival_time = p.arrival_time;
@@ -174,23 +169,20 @@ int main(int argc, char *argv[])
             new_pcb->priority = p.priority;
             new_pcb->waiting_time = 0;
             new_pcb->start_time = -1;
-            new_pcb->remaining_time = p.execution_time; // Initialize as int
+            new_pcb->remaining_time = p.execution_time;
 
             createProcess(new_pcb);
-
-            log_message(LOG_DEBUG, "Process %d assigned shm_id %d", new_pcb->id_from_file, new_pcb->shm_id);
 
             queue_enqueue(&ArrivalQueue, *new_pcb);
 
             pq_pop(&pq);
 
-            // Replace printf with log_message
-            log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d", 
+            log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d",
                        new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
 
             MsgBuffer message;
             message.mtype = 1;
-            message.pcb = *new_pcb; // Sending PCB instead of Process
+            message.pcb = *new_pcb;
 
             if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1)
             {
@@ -198,31 +190,23 @@ int main(int argc, char *argv[])
                 exit(EXIT_FAILURE);
             }
 
-            // Replace printf with log_message
-            log_message(LOG_DEBUG, "Process %d sent to scheduler", new_pcb->id_from_file);
-            
-            process_count++; // Increment process count
+            process_count++;
         }
 
-        // Check for terminated processes
         receive_terminated_processes();
 
-        usleep(100000); // sleep for 0.1 seconds
+        usleep(100000);
     }
 
-    // Send completion signal to the scheduler
     print_divider("Process Generation Complete");
     log_message(LOG_SYSTEM, "All %d processes sent to scheduler", process_count);
     kill(scheduler_pid, SIGUSR1);
 
-    // Wait specifically for the scheduler process to terminate
     int status;
     log_message(LOG_SYSTEM, "Waiting for scheduler process %d to terminate", scheduler_pid);
     waitpid(scheduler_pid, &status, 0);
     log_message(LOG_SYSTEM, "Scheduler process %d terminated", scheduler_pid);
-    
-    // Note: Intentionally not waiting for the clock process
-    
+
     clear_resources(0);
     return 0;
 }
@@ -231,48 +215,42 @@ void createProcess(PCB *process){
     int shmid;
     int *shm_remaining_time;
     pid_t pid;
-     // Create shared memory for remaining time
-     shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
-     if (shmid == -1) {
-         perror("shmget failed");
-         exit(-1);
-     }
- 
-     // Attach shared memory
-     shm_remaining_time = (int *)shmat(shmid, NULL, 0);
-     if (shm_remaining_time == (int *)-1) {
-         perror("shmat failed");
-         exit(-1);
-     }
- 
-     // Initialize shared memory with the process remaining time
-     *shm_remaining_time = process->remaining_time;
-    //  printf("Shared memory created with ID: %d\n", shmid);
-     process->shm_id = shmid; // Store shared memory ID in the PCB
- 
-     // Detach from shared memory (scheduler will reattach when needed)
-     shmdt(shm_remaining_time);
 
-     
-    pid = fork(); // Fork a new process
+    shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+    if (shmid == -1) {
+        perror("shmget failed");
+        exit(-1);
+    }
+
+    shm_remaining_time = (int *)shmat(shmid, NULL, 0);
+    if (shm_remaining_time == (int *)-1) {
+        perror("shmat failed");
+        exit(-1);
+    }
+
+    *shm_remaining_time = process->remaining_time;
+    process->shm_id = shmid;
+
+    shmdt(shm_remaining_time);
+
+    pid = fork();
     if (pid == -1) {
         perror("fork");
         exit(-1);
     }
 
-    if (pid == 0) { // Child process
+    if (pid == 0) {
         char runtime_str[10], shmid_str[20], scheduler_pid_str[20];
-        sprintf(runtime_str, "%d", process->remaining_time); // Convert process runtime to string
-        sprintf(shmid_str, "%d", shmid); // Convert shared memory ID to string
-        sprintf(scheduler_pid_str, "%d", scheduler_pid); // Convert scheduler PID to string
+        sprintf(runtime_str, "%d", process->remaining_time);
+        sprintf(shmid_str, "%d", shmid);
+        sprintf(scheduler_pid_str, "%d", scheduler_pid);
 
-        execl("./bin/process.out", "process.out", runtime_str, shmid_str, scheduler_pid_str, NULL); // Execute the process with scheduler PID
+        execl("./bin/process.out", "process.out", runtime_str, shmid_str, scheduler_pid_str, NULL);
         perror("execl failed");
         exit(1);
-    } else { 
+    } else {
         process->pid = pid;
-        kill(pid, SIGSTOP); 
-
+        kill(pid, SIGSTOP);
     }
 }
 
@@ -292,9 +270,8 @@ void initializeIPC()
         exit(EXIT_FAILURE);
     }
 
-    log_message(LOG_SYSTEM, "Message queue created successfully with ID: %d", msgq_id);
+    log_message(LOG_SYSTEM, "Message queue created with ID: %d", msgq_id);
 
-    // Initialize feedback message queue for terminated processes
     key_t feedback_key = ftok("keyfile", 'B');
     if (feedback_key == -1)
     {
@@ -309,10 +286,9 @@ void initializeIPC()
         exit(EXIT_FAILURE);
     }
 
-    log_message(LOG_SYSTEM, "Feedback message queue created successfully with ID: %d", feedback_msgq_id);
+    log_message(LOG_SYSTEM, "Feedback message queue created with ID: %d", feedback_msgq_id);
 }
 
-// Function to handle terminated processes
 void receive_terminated_processes()
 {
     key_t feedback_key = ftok("keyfile", 'B');
@@ -320,21 +296,18 @@ void receive_terminated_processes()
 
     if (feedback_msgq_id == -1)
     {
-        return; // Queue not ready yet
+        return;
     }
 
     MsgBuffer message;
-    // Receive all available terminated process messages (type 2)
     while (msgrcv(feedback_msgq_id, &message, sizeof(message.pcb), 2, IPC_NOWAIT) != -1)
     {
         PCB terminated_pcb = message.pcb;
-
-        // Add to burst queue
         queue_enqueue(&BurstQueue, terminated_pcb);
 
-        log_message(LOG_PROCESS, "Process %d completed and added to Burst Queue", terminated_pcb.id_from_file);
-        log_message(LOG_STAT, "  Final stats: Arrival=%d, Total runtime=%d, Waiting time=%d",
-               terminated_pcb.arrival_time, terminated_pcb.execution_time, terminated_pcb.waiting_time);
+        log_message(LOG_PROCESS, "Process %d completed", terminated_pcb.id_from_file);
+        log_message(LOG_STAT, "Final stats: Arrival=%d, Runtime=%d, Waiting=%d",
+                   terminated_pcb.arrival_time, terminated_pcb.execution_time, terminated_pcb.waiting_time);
     }
 }
 
@@ -348,7 +321,7 @@ void read_processes(const char *filename, PriorityQueue *pq)
     }
 
     char line[256];
-    fgets(line, sizeof(line), file); // Skip header
+    fgets(line, sizeof(line), file);
 
     while (fgets(line, sizeof(line), file))
     {
@@ -368,6 +341,6 @@ void clear_resources(int signum)
     queue_free(&ArrivalQueue);
     msgctl(msgq_id, IPC_RMID, NULL);
     destroy_clk(1);
-    log_message(LOG_SYSTEM, "🧹 Cleaned up and exiting.");
+    log_message(LOG_SYSTEM, "Cleaned up and exiting");
     exit(0);
 }

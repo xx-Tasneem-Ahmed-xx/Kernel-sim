@@ -1,4 +1,4 @@
-CPU Utilization = 132.14%
-Avg Waiting Time = 44.35
-Avg WTA = inf
-Std WTA = -nan
+CPU utilization = 100.00%
+Avg WTA = 3.36
+Avg Waiting = 3.83
+Std WTA = 3.14

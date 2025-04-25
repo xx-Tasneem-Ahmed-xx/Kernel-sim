@@ -105,7 +105,7 @@ void insert_process_min_heap(PCB *process)
     int index = ready_Heap->size;
     ready_Heap->size++;
     heapify_up(index);
-    printf("Inserted process with pid=%d \n", process->pid);
+    // printf("Inserted process with pid=%d \n", process->pid);
 }
 
 // Extract the minimum element from the heap
@@ -124,7 +124,7 @@ PCB *extract_min() {
         heapify_down(0);
     }
 
-    printf("Extracted process with pid=%d \n", min->pid);
+    // printf("Extracted process with pid=%d \n", min->pid);
     return min;
 }
 
