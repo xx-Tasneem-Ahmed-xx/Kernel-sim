@@ -25,6 +25,7 @@ int wait_times[100];
 // Add a flag to track if the process generator has finished sending processes
 int generator_finished = 0;
 
+
 PCB *find_process_by_pid(pid_t pid)
 {
     if (algorithm == RR) {
@@ -71,12 +72,8 @@ void update_process_remaining_time(PCB *process)
     if (process && process->shm_id != -1) {
         int *shm_remaining_time = (int *)shmat(process->shm_id, NULL, 0);
         if (shm_remaining_time != (int *)-1) {
-            // Store the value, not the pointer
-            if (process->remaining_time == NULL) {
-                // Allocate memory for remaining_time if it doesn't exist
-                process->remaining_time = (int *)malloc(sizeof(int));
-            }
-            *(process->remaining_time) = *shm_remaining_time;
+            // Store the value directly, not as a pointer
+            process->remaining_time = *shm_remaining_time;
             shmdt(shm_remaining_time);
         }
     }
@@ -94,8 +91,6 @@ void run_RR_Algorithm()
     if (current_process != NULL) {
         update_process_remaining_time(current_process);
 
-
-
         // Check if quantum has expired
         static int time_slice_start = -1;
         if (time_slice_start == -1) {
@@ -106,6 +101,8 @@ void run_RR_Algorithm()
             // Quantum expired, reset the timer and do context switch
             time_slice_start = -1;
             context_switching();
+        
+
         }
     }
 }
@@ -121,7 +118,7 @@ void run_SRTN_Algorithm()
         PCB *shortest = ready_Heap->processes[0]; // Peek the top without extracting
 
         if (current_process == NULL ||
-            (*(current_process->remaining_time) > *(shortest->remaining_time))) {
+            (current_process->remaining_time > shortest->remaining_time)) {
             // Need to context switch
             context_switching();
         }
@@ -141,75 +138,28 @@ void run_HPF_Algorithm()
 // Fork and start a process with shared memory for remaining time
 void handle_process_arrival(PCB *process)
 {
-    pid_t pid;
-    int shmid;
-    int *shm_remaining_time;
 
     process_count++;
-    process->remaining_time = (int *)malloc(sizeof(int));
-    *(process->remaining_time) = process->execution_time;
+    process->remaining_time = process->execution_time;
 
-    printf("📥 Scheduler received Process %d (remaining time = %d) and execution time = %d\n",
-           process->id_from_file, *(process->remaining_time),process->execution_time);
+    log_message(LOG_PROCESS, "Received Process %d (Runtime: %d, Priority: %d)",
+               process->id_from_file, process->execution_time, process->priority);
 
-    // Create shared memory for remaining time
-    shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
-    if (shmid == -1) {
-        perror("shmget failed");
-        exit(-1);
-    }
-
-    // Attach shared memory
-    shm_remaining_time = (int *)shmat(shmid, NULL, 0);
-    if (shm_remaining_time == (int *)-1) {
-        perror("shmat failed");
-        exit(-1);
-    }
-
-    // Initialize shared memory with the process remaining time
-    *shm_remaining_time = *(process->remaining_time);
-    process->shm_id = shmid; // Store shared memory ID in the PCB
-
-    // Detach from shared memory (scheduler will reattach when needed)
-    shmdt(shm_remaining_time);
-
+   
     process->state = READY;
     process->start_time = -1;
     process->last_prempt_time = -1;
 
-    pid = fork();
-    if (pid == -1) {
-        perror("fork");
-        exit(-1);
-    }
-
-    if (pid == 0) {
-        char runtime_str[10], shmid_str[20];
-        sprintf(runtime_str, "%d", *(process->remaining_time)); // Convert process runtime to string
-        sprintf(shmid_str, "%d", shmid); // Convert shared memory ID to string
-
-        fflush(stdout);
-
-        execl("./bin/process.out", "process.out", runtime_str, shmid_str, NULL);
-
-        // If execl fails, we reach here
-        perror("execl failed");
-        exit(1);
+    printf("shared memory id = %d\n", process->shm_id);
+    if (algorithm == RR) {
+        queue_enqueue(&rr_queue, *process);
     } else {
-        process->pid = pid;
-        kill(pid, SIGSTOP); // Stop the process initially
-
-        // Add to appropriate data structure
-        if (algorithm == RR) {
-            queue_enqueue(&rr_queue, *process);
-        } else {
-            PCB *heap_process = (PCB *)malloc(sizeof(PCB));
-            *heap_process = *process;
-            insert_process_min_heap(heap_process);
-        }
-
-        printf("Scheduler: Process %d added to the queue\n", process->id_from_file);
+        PCB *heap_process = (PCB *)malloc(sizeof(PCB));
+        *heap_process = *process;
+        insert_process_min_heap(heap_process);
     }
+    printf("Scheduler: Process %d added to the queue\n", process->id_from_file);
+    
 }
 
 
@@ -239,10 +189,7 @@ void receive_new_process(int msgq_id)
     MsgBuffer message;
 
     while (msgrcv(msgq_id, (void *)&message, sizeof(message.pcb), 1, IPC_NOWAIT) != -1) {
-        // Initialize shared memory ID to -1 (will be set in handle_process_arrival)
-        message.pcb.shm_id = -1;
         handle_process_arrival(&message.pcb);
-
         // For SRTN, we might need to preempt the current process
         if (algorithm == SRTN && current_process != NULL) {
             run_SRTN_Algorithm();
@@ -269,14 +216,13 @@ void start_process(PCB *process)
     process->start_time = get_clk();
     if (start_time == -1)
         start_time = process->start_time;
-    process->waiting_time = process->start_time - process->arrival_time;
+    process->waiting_time = get_clk() - process->arrival_time;
 
     if (kill(process->pid, SIGCONT) < 0) {
-        perror("Error starting process");
+        log_message(LOG_ERROR, "Failed to start process %d", process->pid);
     } else {
-        printf("Process %d started\n", process->id_from_file);
+        log_process_state(process, "STARTED");
     }
-    fflush(stdout);
 }
 
 // Resume a process
@@ -288,10 +234,11 @@ void resume_process(PCB *process)
     if (process->last_prempt_time != -1) {
         process->waiting_time += get_clk() - process->last_prempt_time;
     }
-    printf("Resuming process %d\n", process->pid);
 
     if (kill(process->pid, SIGCONT) < 0) {
-        perror("Error resuming process");
+        log_message(LOG_ERROR, "Failed to resume process %d", process->pid);
+    } else {
+        log_process_state(process, "RESUMED");
     }
 }
 
@@ -304,26 +251,28 @@ void preempt_process(PCB *process)
 
     process->state = READY;
     process->last_prempt_time = get_clk();
-    printf("Preempting process %d\n", process->pid);
 
     if (kill(process->pid, SIGSTOP) < 0) {
-        perror("Error stopping process");
+        log_message(LOG_ERROR, "Failed to preempt process %d", process->pid);
+    } else {
+        log_process_state(process, "PREEMPTED");
     }
 }
 
 void context_switching()
 {
     PCB *new_process = NULL;
+    if(current_process != NULL) {
+        printf("Context switching from process %d\n", current_process->pid);
+    } else {
+        printf("No current process to switch from\n");
+    }
 
     // If there's a current process, preempt it
     if (current_process != NULL) {
         // Update current process remaining time from shared memory before preempting
         update_process_remaining_time(current_process);
-
-        // If the remaining time is 0, allow the process to terminate naturally
-        if (*(current_process->remaining_time) == 0) {
-            printf("Process %d has finished execution. Waiting for termination...\n", current_process->pid);
-            // Do not preempt or add the process back to the queue
+        if(current_process->remaining_time == 0) {
             return;
         }
 
@@ -335,13 +284,15 @@ void context_switching()
             // Put it back in the appropriate data structure
             if (algorithm == RR) {
                 queue_enqueue(&rr_queue, *current_process);
+                log_message(LOG_DEBUG, "Re-queued process %d in RR queue", current_process->pid);
             } else {
                 insert_process_min_heap(current_process);
+                log_message(LOG_DEBUG, "Re-inserted process %d in heap", current_process->pid);
             }
         }
     }
 
-    printf("------------------\n");
+    log_message(LOG_SYSTEM, "Performing context switch at time %d", get_clk());
 
     // Get the next process to run
     if (algorithm == RR) {
@@ -369,7 +320,67 @@ void context_switching()
             resume_process(current_process);
         }
         printf("Context switch to process %d\n", current_process->id_from_file);
+    } else {
+        log_message(LOG_SYSTEM, "No process to schedule, CPU idle");
     }
+}
+
+// Handle process completion signal (SIGUSR2)
+void handle_process_completion(int signum) 
+{
+    printf("Received process completion notification (SIGUSR2)\n");
+    
+    // Get the PID of the process that sent us the signal
+    // We can't get it directly from the signal, but it should be our current_process
+    if (!current_process) {
+        printf("Warning: Received SIGUSR2 but no current process is running\n");
+        return;
+    }
+    
+    pid_t pid = current_process->pid;
+    printf("Process %d has notified completion\n", pid);
+    
+    PCB *terminated_process = current_process;
+    
+    // Clean up shared memory
+    if (terminated_process->shm_id != -1) {
+        shmctl(terminated_process->shm_id, IPC_RMID, NULL);
+        terminated_process->shm_id = -1;
+    }
+
+    terminated_process->state = TERMINATED;
+
+    int finish_time = get_clk();
+    int ta = finish_time - terminated_process->arrival_time;
+    float wta = (float)ta / terminated_process->execution_time;
+    int wait = ta - terminated_process->execution_time;
+
+    turnaround_times[finished_processes] = ta;
+    wta_list[finished_processes] = wta;
+    wait_times[finished_processes] = wait;
+    
+    log_process_state(terminated_process, "FINISHED");
+    log_message(LOG_STAT, "  Turnaround: %d, Weighted TA: %.2f, Wait: %d", 
+                ta, wta, wait);
+                
+    finished_processes++;
+    
+    // Show progress
+    print_progress_bar(finished_processes, process_count, 20);
+
+    printf("-------------Received completion notification. Process %d finished execution...\n", pid);
+
+    // Free current process and set it to NULL
+    free(current_process);
+    current_process = NULL;
+
+    // Try to schedule the next process if using SRTN or generator is finished
+    if (generator_finished || algorithm == SRTN) {
+        context_switching();
+    }
+    
+    // Note: We still need handle_sigchld to catch the actual termination
+    // as the child will be reaped by the OS after this notification
 }
 
 void handle_sigchld(int signum)
@@ -409,13 +420,21 @@ void handle_sigchld(int signum)
             turnaround_times[finished_processes] = ta;
             wta_list[finished_processes] = wta;
             wait_times[finished_processes] = wait;
+            
+            log_process_state(terminated_process, "FINISHED");
+            log_message(LOG_STAT, "  Turnaround: %d, Weighted TA: %.2f, Wait: %d", 
+                        ta, wta, wait);
+                        
             finished_processes++;
+            
+            // Show progress
+            print_progress_bar(finished_processes, process_count, 20);
 
             printf("-------------Received termination signal. Terminating process %d...\n", pid);
 
             // If this is the current process, free it and set current_process to NULL
             if (current_process && current_process->pid == pid) {
-                free(current_process->remaining_time);
+                // No need to free remaining_time as it's an int now
                 free(current_process);
                 current_process = NULL;
 
@@ -424,10 +443,7 @@ void handle_sigchld(int signum)
                     context_switching();
                 }
             } else {
-                // Free the remaining time if allocated
-                if (terminated_process->remaining_time) {
-                    free(terminated_process->remaining_time);
-                }
+                // No need to free remaining_time
                 // Note: we don't free the process itself if it's not the current process
                 // as it's part of a data structure that will handle freeing it
             }
@@ -437,12 +453,18 @@ void handle_sigchld(int signum)
 
 int main(int argc, char *argv[])
 {
-    struct sigaction sa;
-    sa.sa_handler = handle_sigchld;               // Set the signal handler
-    sa.sa_flags = SA_NOCLDSTOP;                   // Prevent SIGCHLD for stopped children
-    sigemptyset(&sa.sa_mask);                     // No additional signals to block
-    sigaction(SIGCHLD, &sa, NULL);                // Register the signal handler
-    signal(SIGUSR1, handle_generator_completion); // Register signal handler for generator completion
+    // Setup signal handlers
+    struct sigaction sa_child;
+    sa_child.sa_handler = handle_sigchld;
+    sa_child.sa_flags = SA_NOCLDSTOP;
+    sigemptyset(&sa_child.sa_mask);
+    sigaction(SIGCHLD, &sa_child, NULL);
+    
+    // Register handler for process completion notifications
+    signal(SIGUSR2, handle_process_completion);
+    
+    // Register handler for generator completion
+    signal(SIGUSR1, handle_generator_completion);
 
     if (argc < 2) {
         printf("Usage: %s <algorithm> [quantum]\n", argv[0]);
@@ -450,20 +472,31 @@ int main(int argc, char *argv[])
     }
 
     algorithm = atoi(argv[1]);
+    const char* algorithm_name = "";
+    
     if (algorithm == SRTN) {
+        algorithm_name = "Shortest Remaining Time Next";
         ready_Heap = create_min_heap(compare_remaining_time);
     } else if (algorithm == HPF) {
+        algorithm_name = "Highest Priority First";
         ready_Heap = create_min_heap(compare_priority);
     } else if (algorithm == RR) {
+        algorithm_name = "Round Robin";
         if (argc < 3) {
-            printf("RR algorithm requires quantum value\n");
+            log_message(LOG_ERROR, "RR algorithm requires quantum value");
             exit(1);
         }
         quantum = atoi(argv[2]);
         queue_init(&rr_queue, 100); // Initialize with larger capacity
     } else {
-        printf("Invalid algorithm selection\n");
+        log_message(LOG_ERROR, "Invalid algorithm selection");
         exit(1);
+    }
+    
+    print_divider("Scheduler Started");
+    log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
+    if (algorithm == RR) {
+        log_message(LOG_SYSTEM, "Quantum: %d", quantum);
     }
     
     // why even assign quantum when it's not RR?
@@ -492,28 +525,53 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Clean up and print statistics
-    // printf("\n===== Scheduling Statistics =====\n");
-    // printf("Total processes: %d\n", process_count);
-    // printf("Finished processes: %d\n", finished_processes);
-    //
-    // float avg_ta = 0, avg_wta = 0, avg_wait = 0;
-    // for (int i = 0; i < finished_processes; i++) {
-    //     avg_ta += turnaround_times[i];
-    //     avg_wta += wta_list[i];
-    //     avg_wait += wait_times[i];
-    // }
-    //
-    // if (finished_processes > 0) {
-    //     avg_ta /= finished_processes;
-    //     avg_wta /= finished_processes;
-    //     avg_wait /= finished_processes;
-    // }
-    //
-    // printf("Average turnaround time: %.2f\n", avg_ta);
-    // printf("Average weighted turnaround time: %.2f\n", avg_wta);
-    // printf("Average waiting time: %.2f\n", avg_wait);
-    //
+    print_divider("Scheduler Statistics");
+    
+    // Calculate CPU utilization
+    int total_time = get_clk() - start_time;
+    float cpu_util = total_time > 0 ? ((float)total_cpu_time / total_time) * 100 : 0;
+    
+    // Calculate averages
+    float avg_ta = 0, avg_wta = 0, avg_wait = 0;
+    float std_wta = 0;  // For standard deviation
+    
+    for (int i = 0; i < finished_processes; i++) {
+        avg_ta += turnaround_times[i];
+        avg_wta += wta_list[i];
+        avg_wait += wait_times[i];
+    }
+    
+    if (finished_processes > 0) {
+        avg_ta /= finished_processes;
+        avg_wta /= finished_processes;
+        avg_wait /= finished_processes;
+        
+        // Calculate standard deviation
+        for (int i = 0; i < finished_processes; i++) {
+            std_wta += pow(wta_list[i] - avg_wta, 2);
+        }
+        std_wta = sqrt(std_wta / finished_processes);
+    }
+    
+    log_message(LOG_STAT, "Total processes: %d", process_count);
+    log_message(LOG_STAT, "CPU utilization: %.2f%%", cpu_util);
+    log_message(LOG_STAT, "Avg turnaround time: %.2f", avg_ta);
+    log_message(LOG_STAT, "Avg weighted turnaround time: %.2f", avg_wta);
+    log_message(LOG_STAT, "Std weighted turnaround time: %.2f", std_wta);
+    log_message(LOG_STAT, "Avg waiting time: %.2f", avg_wait);
+    
+    // Write statistics to scheduler.perf file
+    FILE* perf_file = fopen("scheduler.perf", "w");
+    if (perf_file) {
+        fprintf(perf_file, "CPU utilization = %.2f%%\n", cpu_util);
+        fprintf(perf_file, "Avg WTA = %.2f\n", avg_wta);
+        fprintf(perf_file, "Avg Waiting = %.2f\n", avg_wait);
+        fprintf(perf_file, "Std WTA = %.2f\n", std_wta);
+        fclose(perf_file);
+    }
+    
+    print_divider("Simulation Complete");
+    
     destroy_clk(0);
     printf("Scheduler: finished...\n");
     return 0;

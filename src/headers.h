@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <math.h>
 #include <time.h>
+#include <stdarg.h>  // Added for va_start and va_end
 
 // data structure files
 #include "DS/priorityQueue.h"
@@ -31,6 +32,39 @@ typedef struct {
     PCB pcb;
 } MsgBuffer;
 
+// ANSI color codes
+#define COLOR_RESET   "\x1B[0m"
+#define COLOR_RED     "\x1B[31m"
+#define COLOR_GREEN   "\x1B[32m"
+#define COLOR_YELLOW  "\x1B[33m"
+#define COLOR_BLUE    "\x1B[34m"
+#define COLOR_MAGENTA "\x1B[35m"
+#define COLOR_CYAN    "\x1B[36m"
+#define COLOR_WHITE   "\x1B[37m"
+#define BOLD          "\x1B[1m"
 
+typedef enum {
+    LOG_DEBUG,   // Detailed debug info
+    LOG_INFO,    // General information
+    LOG_PROCESS, // Process-related events
+    LOG_SYSTEM,  // System events
+    LOG_STAT,    // Statistics
+    LOG_ERROR    // Error messages
+} LogLevel;
 
-#endif
+// Only show messages at or above this level
+extern LogLevel current_log_level;
+
+// Logging function with level and colors
+void log_message(LogLevel level, const char* format, ...);
+
+// Helper function for process state changes
+void log_process_state(PCB* process, const char* state);
+
+// Print a divider line for sections
+void print_divider(const char* title);
+
+// Print a simple progress bar
+void print_progress_bar(int completed, int total, int width);
+
+#endif  // HEADERS_H

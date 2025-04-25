@@ -58,6 +58,7 @@ void queue_enqueue(PCBQueue *q, PCB value)
     q->data[q->rear] = value;
     q->rear = (q->rear + 1) % q->capacity;
     q->size++;
+    // queue_print(q); // Print the queue after enqueueing
 }
 
 PCB queue_front(PCBQueue *q)
@@ -93,8 +94,8 @@ void queue_print(PCBQueue *q)
         printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
                q->data[index].id_from_file, q->data[index].pid, q->data[index].arrival_time,
                q->data[index].execution_time, 
-               // Add dereferencing with NULL check for remaining_time pointer
-               (q->data[index].remaining_time != NULL ? *(q->data[index].remaining_time) : -1),
+               // Simply use the remaining_time as is, since it's an integer, not a pointer
+               q->data[index].remaining_time,
                q->data[index].priority);
     }
 }

@@ -82,9 +82,7 @@ void destroy_min_heap()
         // Free all PCB objects stored in the heap
         for (int i = 0; i < ready_Heap->size; i++) {
             if (ready_Heap->processes[i]) {
-                if (ready_Heap->processes[i]->remaining_time) {
-                    free(ready_Heap->processes[i]->remaining_time);
-                }
+                // remaining_time is an integer, not a pointer, so don't free it
                 free(ready_Heap->processes[i]);
             }
         }
@@ -165,12 +163,15 @@ void print_minheap()
     printf("Min-Heap (Ready Queue), Size: %d\n", ready_Heap->size);
     for (int i = 0; i < ready_Heap->size; i++)
     {
-        printf("Process %d: Arrival=%d, Remaining=%d, PID=%d, State=%d, Priority=%d\n",
+        printf("Process %d: Arrival=%d, Remaining=%d, PID=%d, State=%d, Priority=%d,sh_id=%d\n",
                ready_Heap->processes[i]->id_from_file,
                ready_Heap->processes[i]->arrival_time,
-               ready_Heap->processes[i]->remaining_time ? *(ready_Heap->processes[i]->remaining_time) : -1,
+               ready_Heap->processes[i]->remaining_time, // Using directly as an integer
                ready_Heap->processes[i]->pid,
                ready_Heap->processes[i]->state,
-               ready_Heap->processes[i]->priority);
+               ready_Heap->processes[i]->priority,
+               ready_Heap->processes[i]->shm_id
+            );
+
     }
 }
