@@ -8,23 +8,27 @@
 
 typedef int (*Comparator)(PCB *, PCB *); // Comparator function pointer type
 
-typedef struct {
+typedef struct
+{
     int capacity;
     int size;
-    PCB* processes;
+    PCB **processes;
     Comparator cmp;
 } MinHeap;
 
 extern MinHeap *ready_Heap;
 
 // Function declarations
-MinHeap* create_min_heap(Comparator cmp);
+MinHeap *create_min_heap(Comparator cmp);
 
+void heapify_down(int i);
+void heapify_up(int i);
+// static void swap(PCB *a, PCB *b);
 void destroy_min_heap();
 
-void insert_process_min_heap(PCB* process);
+void insert_process_min_heap(PCB *process);
 
-PCB* extract_min();
+PCB *extract_min();
 
 void update_remaining_time(int child_pid, int new_time);
 

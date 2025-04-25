@@ -3,7 +3,6 @@
 Node *ready_Queue = NULL;
 int process_Count = 0;
 const char* ProcessStateNames[] = {
-    "WAITING",
     "READY",
     "RUNNING",
     "STOPPED",
