@@ -19,7 +19,7 @@ void cleanup()
     }
 }
 
-void run_process(int total_runtime, int shared_mem_id)
+void run_process(int remaining_time, int shared_mem_id)
 {
 
     // Setup exit handler to clean up shared memory
@@ -35,14 +35,14 @@ void run_process(int total_runtime, int shared_mem_id)
     }
 
     // Initialize remaining time in shared memory
-    *shared_remaining_time = total_runtime;
+    *shared_remaining_time = remaining_time;
 
     sync_clk();
 
     int currTime = get_clk();
     int preTime = currTime;
 
-    printf("Process initialized with shared memory ID %d and rem time = %d \n", shmid_p, *shared_remaining_time);
+    printf("Process initialized with shared memory ID %d and remaining time = %d \n", shmid_p, *shared_remaining_time);
 
     while ((*shared_remaining_time) > 0)
     {

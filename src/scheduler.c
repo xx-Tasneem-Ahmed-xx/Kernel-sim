@@ -185,7 +185,7 @@ void handle_process_arrival(PCB *process)
 
     if (pid == 0) {
         char runtime_str[10], shmid_str[20];
-        sprintf(runtime_str, "%d", *(process->remaining_time));
+        sprintf(runtime_str, "%d", *(process->remaining_time)); // Convert process runtime to string
         sprintf(shmid_str, "%d", shmid); // Convert shared memory ID to string
 
         fflush(stdout);
@@ -208,7 +208,7 @@ void handle_process_arrival(PCB *process)
             insert_process_min_heap(heap_process);
         }
 
-        printf("Scheduler: Process %d added to the queue\n", process->pid);
+        printf("Scheduler: Process %d added to the queue\n", process->id_from_file);
     }
 }
 
@@ -269,12 +269,12 @@ void start_process(PCB *process)
     process->start_time = get_clk();
     if (start_time == -1)
         start_time = process->start_time;
-    process->waiting_time = get_clk() - process->arrival_time;
+    process->waiting_time = process->start_time - process->arrival_time;
 
     if (kill(process->pid, SIGCONT) < 0) {
         perror("Error starting process");
     } else {
-        printf("Process %d started\n", process->pid);
+        printf("Process %d started\n", process->id_from_file);
     }
     fflush(stdout);
 }
@@ -320,8 +320,16 @@ void context_switching()
         // Update current process remaining time from shared memory before preempting
         update_process_remaining_time(current_process);
 
+        // If the remaining time is 0, allow the process to terminate naturally
+        if (*(current_process->remaining_time) == 0) {
+            printf("Process %d has finished execution. Waiting for termination...\n", current_process->pid);
+            // Do not preempt or add the process back to the queue
+            return;
+        }
+
         // Preempt the current process if it's not terminated
         if (current_process->state != TERMINATED) {
+            // why update remaining time here? 
             preempt_process(current_process);
 
             // Put it back in the appropriate data structure
@@ -360,7 +368,7 @@ void context_switching()
         } else {
             resume_process(current_process);
         }
-        printf("Context switch to process %d\n", current_process->pid);
+        printf("Context switch to process %d\n", current_process->id_from_file);
     }
 }
 
@@ -457,7 +465,8 @@ int main(int argc, char *argv[])
         printf("Invalid algorithm selection\n");
         exit(1);
     }
-
+    
+    // why even assign quantum when it's not RR?
     if (argc > 2 && algorithm != RR) {
         quantum = atoi(argv[2]);
     }
