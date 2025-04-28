@@ -315,6 +315,7 @@ void handle_process_completion(int signum)
     }
 
     PCB *terminated_process = current_process;
+    update_process_remaining_time(terminated_process);
 
     if (terminated_process->shm_id != -1) {
         shmctl(terminated_process->shm_id, IPC_RMID, NULL);

@@ -328,7 +328,6 @@ void receive_terminated_processes()
                    terminated_pcb.arrival_time, terminated_pcb.execution_time, terminated_pcb.waiting_time);
     }
 }
-
 void read_processes(const char *filename, PriorityQueue *pq)
 {
     FILE *file = fopen(filename, "r");
@@ -343,6 +342,11 @@ void read_processes(const char *filename, PriorityQueue *pq)
 
     while (fgets(line, sizeof(line), file))
     {
+        // Skip lines that start with "#changes"
+        if (strncmp(line, "#changes", 8) == 0) {
+            continue;
+        }
+        
         Process p;
         if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority) == 4) {
             pq_push(pq, p);
