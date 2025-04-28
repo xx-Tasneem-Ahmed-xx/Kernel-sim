@@ -21,10 +21,6 @@ void cleanup()
 
 void run_process(int total_runtime, int shared_mem_id)
 {
-
-    // Setup exit handler to clean up shared memory
-    atexit(cleanup);
-
     // Attach to shared memory
     shmid_p = shared_mem_id;
     shared_remaining_time = (int *)shmat(shmid_p, NULL, 0);
@@ -62,6 +58,7 @@ void run_process(int total_runtime, int shared_mem_id)
     }
 
     printf("Process finished at time %d\n", get_clk());
+    cleanup();
     exit(0);
 }
 

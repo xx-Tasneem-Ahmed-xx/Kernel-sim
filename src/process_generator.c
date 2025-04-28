@@ -156,13 +156,13 @@ int main(int argc, char *argv[])
             new_pcb.remaining_time = &p.execution_time;
             new_pcb.priority = p.priority;
             new_pcb.waiting_time = 0;
-            new_pcb.execution_time = 0;
+            // new_pcb.execution_time = 0;
             new_pcb.start_time=-1;
 
             queue_enqueue(&ArrivalQueue, new_pcb);
             pq_pop(&pq);
 
-            printf("Process %d arrived at time %d\n", new_pcb.id_from_file, current_time);
+            printf("Process %d arrived at time %d with run time %d\n", new_pcb.id_from_file, current_time, new_pcb.execution_time);
 
             MsgBuffer message;
             message.mtype = 1;
