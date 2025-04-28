@@ -13,6 +13,7 @@ int finished_processes = 0;
 int start_time = -1;
 int quantum = 0;
 int generator_finished = 0;
+int active_cpu_time = 0; // Time the CPU is actively running processes
 
 int turnaround_times[100];
 float wta_list[100];
@@ -211,6 +212,9 @@ void start_process(PCB *process)
     process->start_time = get_clk();
     if (start_time == -1)
         start_time = process->start_time;
+    // Increment active CPU time
+    active_cpu_time += process->execution_time;
+
     process->waiting_time = get_clk() - process->arrival_time;
 
     if (kill(process->pid, SIGCONT) < 0) {
@@ -472,7 +476,7 @@ int main(int argc, char *argv[])
     print_divider("Scheduler Statistics");
 
     int total_time = get_clk() - start_time;
-    float cpu_util = total_time > 0 ? ((float)(get_clk() - start_time) / total_time) * 100 : 0;
+    float cpu_util = total_time > 0 ? ((float)active_cpu_time / total_time) * 100 : 0;
 
     float avg_ta = 0, avg_wta = 0, avg_wait = 0, std_wta = 0;
 
