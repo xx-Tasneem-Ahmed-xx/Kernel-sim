@@ -25,8 +25,8 @@ void cleanup()
 void cont_handler(int signum)
 {
     // Update preTime to current time when process continues
-    currTime = get_clk();
-    // preTime = get_clk();
+    // currTime = get_clk();
+    preTime = get_clk();
     // sleep(1);
     log_message(LOG_PROCESS, "Process %d resumed at time %d", getpid(), preTime);
 }
@@ -36,7 +36,7 @@ void run_process(int remaining_time, int shared_mem_id)
     // Setup exit handler to clean up shared memory
     atexit(cleanup);
     
-    // signal(SIGCONT, cont_handler);
+    signal(SIGCONT, cont_handler);
 
     // Attach to shared memory
     shmid_p = shared_mem_id;
