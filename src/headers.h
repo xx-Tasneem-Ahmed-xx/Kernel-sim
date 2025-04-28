@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/shm.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
@@ -12,6 +13,9 @@
 #include <signal.h>
 #include <math.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 #include <stdarg.h>  // Added for va_start and va_end
 
 // data structure files
@@ -19,6 +23,7 @@
 #include "DS/minHeap.h"
 #include "DS/Queue.h"
 #include "DS/comparators.h"
+#include "semaphores.h"  // Fixed: changed from semaphore.h to semaphores.h
 
 // header files
 #include "clk.h"
@@ -51,6 +56,7 @@ typedef enum {
     LOG_STAT,    // Statistics
     LOG_ERROR    // Error messages
 } LogLevel;
+
 
 // Only show messages at or above this level
 extern LogLevel current_log_level;

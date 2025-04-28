@@ -7,7 +7,7 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 # Source files
-COMMON_SRCS = DS/minHeap.c DS/priorityQueue.c DS/Queue.c pcb.c DS/comparators.c clk.c logger.c
+COMMON_SRCS = DS/minHeap.c DS/priorityQueue.c DS/Queue.c pcb.c DS/comparators.c clk.c logger.c semaphores.c
 COMMON_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(COMMON_SRCS))
 
 # Ensure directories exist before building
@@ -21,8 +21,8 @@ $(BIN_DIR)/os-sim: $(OBJ_DIR)/process_generator.o $(COMMON_OBJS)
 $(BIN_DIR)/scheduler: $(OBJ_DIR)/scheduler.o $(COMMON_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-# Process executable - add logger.o to the dependencies
-$(BIN_DIR)/process.out: $(OBJ_DIR)/process.o $(OBJ_DIR)/clk.o $(OBJ_DIR)/logger.o
+# Process executable - add semaphores.o to the dependencies
+$(BIN_DIR)/process.out: $(OBJ_DIR)/process.o $(OBJ_DIR)/clk.o $(OBJ_DIR)/logger.o $(OBJ_DIR)/semaphores.o
 	$(CC) $(CFLAGS) -o $@ $^
 
 # Pattern rule for object files

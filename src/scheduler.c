@@ -18,6 +18,8 @@ int turnaround_times[100];
 float wta_list[100];
 int wait_times[100];
 
+int semid; // Semaphore ID to sync with process generator
+
 void log_process_event(const char *state, PCB *process, int finish_time) {
     FILE *log_file = fopen("scheduler.log", "a");
     if (!log_file) {
@@ -80,7 +82,7 @@ void run_RR_Algorithm()
 {
     if (current_process == NULL && rr_queue.size > 0) {
         context_switching();
-        return;
+        // return;
     }
 
     if (current_process != NULL) {
@@ -174,12 +176,32 @@ void receive_new_process(int msgq_id)
 
 void run_algorithm(int algorithm)
 {
+    // Try to check if semaphore is available (value > 0)
+    int sem_val = semctl(semid, 0, GETVAL);
+    // printf("Semaphore value: %d\n",sem_val);
+    if (sem_val <= 0) {
+        // Semaphore is unavailable (0), process generator is sending processes
+        // Don't run algorithm, just return
+        return;
+    }
+
+    // Try to down the semaphore (non-blocking)
+    int result = down_nb(semid);
+    if (result < 0) {
+        // Failed to acquire semaphore
+        return;
+    }
+    
+    // Run the algorithm as normal
     if (algorithm == HPF)
         run_HPF_Algorithm();
     else if (algorithm == SRTN)
         run_SRTN_Algorithm();
     else if (algorithm == RR)
         run_RR_Algorithm();
+    
+    // Release the semaphore
+    up(semid);
 }
 
 void start_process(PCB *process)
@@ -392,7 +414,7 @@ int main(int argc, char *argv[])
     signal(SIGUSR1, handle_generator_completion);
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <algorithm> [quantum]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <algorithm> [quantum] <semaphore_id>\n", argv[0]);
         exit(1);
     }
 
@@ -407,16 +429,21 @@ int main(int argc, char *argv[])
         ready_Heap = create_min_heap(compare_priority);
     } else if (algorithm == RR) {
         algorithm_name = "Round Robin";
-        if (argc < 3) {
-            log_message(LOG_ERROR, "RR algorithm requires quantum value");
+        if (argc < 4) {
+            log_message(LOG_ERROR, "RR algorithm requires quantum value and semaphore ID");
             exit(1);
         }
-        quantum = atoi(argv[2]);
+        quantum = atoi(argv[3]);
+        
         queue_init(&rr_queue, 100);
     } else {
-        log_message(LOG_ERROR, "Invalid algorithm selection");
-        exit(1);
+        if (argc < 3) {
+            log_message(LOG_ERROR, "Missing semaphore ID argument");
+            exit(1);
+        }
     }
+    semid = atoi(argv[2]);
+    printf("semaphore id in scheduler: %d\n", semid);
 
     print_divider("Scheduler Started");
     log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
@@ -430,6 +457,7 @@ int main(int argc, char *argv[])
 
     while (1) {
         receive_new_process(msgq_id);
+        
         run_algorithm(algorithm);
 
         if (generator_finished &&

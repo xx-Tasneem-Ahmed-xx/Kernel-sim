@@ -1,18 +1,5 @@
-#include <stdio.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include <sys/wait.h>
-#include <string.h>
-#include "clk.h"
 #include "headers.h"
-#include <sys/shm.h>
-
-#include "DS/priorityQueue.h"
-#include "DS/Queue.h"
+#include "semaphores.h"
 
 PriorityQueue pq;
 PCBQueue ArrivalQueue;
@@ -21,6 +8,7 @@ PCBQueue BurstQueue;
 int msgq_id;
 key_t msgq_key;
 pid_t scheduler_pid;
+int semid; // Global semaphore ID
 
 typedef struct
 {
@@ -117,21 +105,40 @@ int main(int argc, char *argv[])
 
     read_processes(params.filename, &pq);
     initializeIPC();
+    
+    // Create a semaphore with initial value 1 (scheduler can run initially)
+    semid = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
+    if (semid == -1) {
+        perror("semget failed");
+        exit(1);
+    }
+    // printf("semaphore id in process: %d\n", semid);
+
+  
+    // Initialize both semaphores to 1
+    union semun arg;
+    arg.val = 1;  // Set the initial value to 1
+    if (semctl(semid, 0, SETVAL, arg) == -1) {
+        perror("semctl failed");
+        exit(1);
+    }
 
     scheduler_pid = fork();
     if (scheduler_pid == 0)
     {
-        char algorithm_str[10];
+        char algorithm_str[10], semid_str[10];
         sprintf(algorithm_str, "%d", params.algorithm);
+        sprintf(semid_str, "%d", semid);
+        
         if (params.algorithm == RR)
         {
             char quantum_str[10];
             sprintf(quantum_str, "%d", params.quantum);
-            execl("./bin/scheduler", "scheduler", algorithm_str, quantum_str, NULL);
+            execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, quantum_str, NULL);
         }
         else
         {
-            execl("./bin/scheduler", "scheduler", algorithm_str, NULL);
+            execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, NULL);
         }
         perror("Error executing scheduler");
         exit(EXIT_FAILURE);
@@ -156,41 +163,52 @@ int main(int argc, char *argv[])
             log_message(LOG_INFO, "No more processes to schedule");
             break;
         }
-
+        
         int current_time = get_clk();
-        while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
-        {
-            p = pq_top(&pq);
-
-            PCB *new_pcb = (PCB *)malloc(sizeof(PCB));
-            new_pcb->id_from_file = p.id;
-            new_pcb->arrival_time = p.arrival_time;
-            new_pcb->execution_time = p.execution_time;
-            new_pcb->priority = p.priority;
-            new_pcb->waiting_time = 0;
-            new_pcb->start_time = -1;
-            new_pcb->remaining_time = p.execution_time;
-
-            createProcess(new_pcb);
-
-            queue_enqueue(&ArrivalQueue, *new_pcb);
-
-            pq_pop(&pq);
-
-            log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d",
-                       new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
-
-            MsgBuffer message;
-            message.mtype = 1;
-            message.pcb = *new_pcb;
-
-            if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1)
+        if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
+            //print semaphore value
+            printf("Semaphore value: %d\n", semctl(semid, 0, GETVAL));
+            // Down semaphore before sending processes to block the scheduler
+            down(semid);
+            
+            while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
             {
-                perror("Error sending process to scheduler");
-                exit(EXIT_FAILURE);
-            }
+                p = pq_top(&pq);
 
-            process_count++;
+                PCB *new_pcb = (PCB *)malloc(sizeof(PCB));
+                new_pcb->id_from_file = p.id;
+                new_pcb->arrival_time = p.arrival_time;
+                new_pcb->execution_time = p.execution_time;
+                new_pcb->priority = p.priority;
+                new_pcb->waiting_time = 0;
+                new_pcb->start_time = -1;
+                new_pcb->remaining_time = p.execution_time;
+
+                createProcess(new_pcb);
+
+                queue_enqueue(&ArrivalQueue, *new_pcb);
+
+                pq_pop(&pq);
+
+                log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d",
+                           new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
+
+                MsgBuffer message;
+                message.mtype = 1;
+                message.pcb = *new_pcb;
+
+                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1)
+                {
+                    perror("Error sending process to scheduler");
+                    exit(EXIT_FAILURE);
+                }
+
+                process_count++;
+            }
+            
+            // Up semaphore to let the scheduler run again
+            up(semid);
+            printf("Semaphore value after up: %d\n", semctl(semid, 0, GETVAL));
         }
 
         receive_terminated_processes();
@@ -340,6 +358,10 @@ void clear_resources(int signum)
     pq_free(&pq);
     queue_free(&ArrivalQueue);
     msgctl(msgq_id, IPC_RMID, NULL);
+    
+    // Remove both semaphores
+    semctl(semid, 0, IPC_RMID);
+    
     destroy_clk(1);
     log_message(LOG_SYSTEM, "Cleaned up and exiting");
     exit(0);
