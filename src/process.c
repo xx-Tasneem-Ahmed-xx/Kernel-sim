@@ -27,6 +27,7 @@ void cont_handler(int signum)
     // Update preTime to current time when process continues
     currTime = get_clk();
     // preTime = get_clk();
+    // sleep(1);
     log_message(LOG_PROCESS, "Process %d resumed at time %d", getpid(), preTime);
 }
 
@@ -62,6 +63,7 @@ void run_process(int remaining_time, int shared_mem_id)
         currTime = get_clk();
         if (currTime - preTime == 1)
         {
+            // printf("currTime: %d, preTime: %d\n", currTime, preTime);
             preTime = currTime;
             (*shared_remaining_time)--;
             log_message(LOG_PROCESS, "Process %d running at time %d, remaining time: %d", 

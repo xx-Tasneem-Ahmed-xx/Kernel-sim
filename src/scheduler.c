@@ -17,6 +17,7 @@ int generator_finished = 0;
 int turnaround_times[100];
 float wta_list[100];
 int wait_times[100];
+int time_slice_start = -1;
 
 int semid; // Semaphore ID to sync with process generator
 
@@ -81,6 +82,8 @@ void update_process_remaining_time(PCB *process)
 void run_RR_Algorithm()
 {
     if (current_process == NULL && rr_queue.size > 0) {
+       
+        printf("context switching\n in rr process = null");
         context_switching();
         // return;
     }
@@ -88,13 +91,9 @@ void run_RR_Algorithm()
     if (current_process != NULL) {
         update_process_remaining_time(current_process);
 
-        static int time_slice_start = -1;
-        if (time_slice_start == -1) {
-            time_slice_start = get_clk();
-        }
 
         if (get_clk() - time_slice_start >= quantum && rr_queue.size > 0) {
-            time_slice_start = -1;
+            printf("i am context switch RR2\n");
             context_switching();
         }
     }
@@ -220,6 +219,7 @@ void start_process(PCB *process)
         log_process_state(process, "STARTED");
         log_process_event("started", process, -1);
     }
+    time_slice_start = get_clk();
 }
 
 void resume_process(PCB *process)
@@ -237,6 +237,7 @@ void resume_process(PCB *process)
         log_process_state(process, "RESUMED");
         log_process_event("resumed", process, -1);
     }
+    time_slice_start = get_clk();
 }
 
 void preempt_process(PCB *process)
@@ -346,57 +347,57 @@ void handle_process_completion(int signum)
     free(current_process);
     current_process = NULL;
 
-    if (generator_finished || algorithm == SRTN) {
+    if (generator_finished && algorithm == SRTN) {
         context_switching();
     }
 }
 
-void handle_sigchld(int signum)
-{
-    int status;
-    pid_t pid;
+// void handle_sigchld(int signum)
+// {
+//     int status;
+//     pid_t pid;
 
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        PCB *terminated_process = find_process_by_pid(pid);
+//     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+//         PCB *terminated_process = find_process_by_pid(pid);
 
-        if (terminated_process && terminated_process->state != TERMINATED) {
-            if (terminated_process->shm_id != -1) {
-                shmctl(terminated_process->shm_id, IPC_RMID, NULL);
-                terminated_process->shm_id = -1;
-            }
+//         if (terminated_process && terminated_process->state != TERMINATED) {
+//             if (terminated_process->shm_id != -1) {
+//                 shmctl(terminated_process->shm_id, IPC_RMID, NULL);
+//                 terminated_process->shm_id = -1;
+//             }
 
-            terminated_process->state = TERMINATED;
+//             terminated_process->state = TERMINATED;
 
-            int finish_time = get_clk();
-            int ta = finish_time - terminated_process->arrival_time;
-            float wta = roundf(((float)ta / terminated_process->execution_time) * 100) / 100;
-            int wait = ta - terminated_process->execution_time;
+//             int finish_time = get_clk();
+//             int ta = finish_time - terminated_process->arrival_time;
+//             float wta = roundf(((float)ta / terminated_process->execution_time) * 100) / 100;
+//             int wait = ta - terminated_process->execution_time;
 
-            turnaround_times[finished_processes] = ta;
-            wta_list[finished_processes] = wta;
-            wait_times[finished_processes] = wait;
+//             turnaround_times[finished_processes] = ta;
+//             wta_list[finished_processes] = wta;
+//             wait_times[finished_processes] = wait;
 
-            log_process_state(terminated_process, "FINISHED");
-            log_message(LOG_STAT, "Turnaround: %d, Weighted TA: %.2f, Wait: %d",
-                        ta, wta, wait);
+//             log_process_state(terminated_process, "FINISHED");
+//             log_message(LOG_STAT, "Turnaround: %d, Weighted TA: %.2f, Wait: %d",
+//                         ta, wta, wait);
 
-            log_process_event("finished", terminated_process, finish_time);
+//             log_process_event("finished", terminated_process, finish_time);
 
-            finished_processes++;
-            printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
-            print_progress_bar(finished_processes, process_count, 20);
+//             finished_processes++;
+//             printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
+//             print_progress_bar(finished_processes, process_count, 20);
 
-            if (current_process && current_process->pid == pid) {
-                free(current_process);
-                current_process = NULL;
+//             if (current_process && current_process->pid == pid) {
+//                 free(current_process);
+//                 current_process = NULL;
 
-                if (generator_finished && algorithm == SRTN) {
-                    context_switching();
-                }
-            }
-        }
-    }
-}
+//                 if (generator_finished && algorithm == SRTN) {
+//                     context_switching();
+//                 }
+//             }
+//         }
+//     }
+// }
 
 int main(int argc, char *argv[])
 {
@@ -405,11 +406,11 @@ int main(int argc, char *argv[])
         fclose(log_file);
     }
 
-    struct sigaction sa_child;
-    sa_child.sa_handler = handle_sigchld;
-    sa_child.sa_flags = SA_NOCLDSTOP;
-    sigemptyset(&sa_child.sa_mask);
-    sigaction(SIGCHLD, &sa_child, NULL);
+    // struct sigaction sa_child;
+    // sa_child.sa_handler = handle_process_completion;
+    // sa_child.sa_flags = SA_NOCLDSTOP;
+    // sigemptyset(&sa_child.sa_mask);
+    // sigaction(SIGCHLD, &sa_child, NULL);
 
     signal(SIGUSR2, handle_process_completion);
     signal(SIGUSR1, handle_generator_completion);
