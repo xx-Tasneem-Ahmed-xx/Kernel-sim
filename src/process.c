@@ -7,11 +7,11 @@
 #include <sys/shm.h>
 
 int runtime = 0;
-int *shared_remaining_time = NULL; // Pointer to shared memory
+int *shared_remaining_time = NULL; 
 int shmid_p = -1;
-pid_t scheduler_pid = -1;  // Store scheduler's PID
-int preTime = 0; // Make preTime global so signal handler can access it
-int currTime = 0; // Current time variable
+pid_t scheduler_pid = -1; 
+int preTime = 0; 
+int currTime = 0; 
 void cleanup()
 {
     // Detach from shared memory
@@ -21,13 +21,10 @@ void cleanup()
     }
 }
 
-// Signal handler for SIGCONT
 void cont_handler(int signum)
 {
     // Update preTime to current time when process continues
-    // currTime = get_clk();
     preTime = get_clk();
-    // sleep(1);
     log_message(LOG_PROCESS, "Process %d resumed at time %d", getpid(), preTime);
 }
 
@@ -63,13 +60,11 @@ void run_process(int remaining_time, int shared_mem_id)
         currTime = get_clk();
         if (currTime - preTime == 1)
         {
-            // printf("currTime: %d, preTime: %d\n", currTime, preTime);
             preTime = currTime;
             (*shared_remaining_time)--;
             log_message(LOG_PROCESS, "Process %d running at time %d, remaining time: %d", 
             getpid(), get_clk(), *shared_remaining_time);
             
-            // Print progress every 5 ticks or on last tick
             if (*shared_remaining_time % 5 == 0 || *shared_remaining_time == 0)
             {
                 printf("%sProcess %d Progress:%s\n", COLOR_GREEN, getpid(), COLOR_RESET);

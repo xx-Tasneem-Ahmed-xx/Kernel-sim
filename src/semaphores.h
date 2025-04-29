@@ -13,7 +13,6 @@ union semun {
     struct seminfo *__buf;
 };
 
-// Function prototypes
 void down(int semid);
 void up(int semid);
 int down_nb(int semid);

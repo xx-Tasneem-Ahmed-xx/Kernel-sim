@@ -16,7 +16,8 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
-#include <stdarg.h>  // Added for va_start and va_end
+#include <stdarg.h>
+#include "semaphores.h"
 
 // data structure files
 #include "DS/priorityQueue.h"

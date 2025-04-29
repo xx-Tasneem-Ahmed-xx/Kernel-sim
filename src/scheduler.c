@@ -1,8 +1,8 @@
 #include "scheduler.h"
 #include "headers.h"
 #include <signal.h>
-#include <bits/sigaction.h>
 #include <sys/shm.h>
+
 #include <math.h>
 
 SchedulingAlgorithm algorithm;
@@ -10,15 +10,15 @@ PCB *current_process = NULL;
 PCBQueue rr_queue;
 int process_count = 0;
 int finished_processes = 0;
-int start_time = -1;
+int start_time = -1; // Start time of the scheduler with the first process
 int quantum = 0;
-int generator_finished = 0;
+int generator_finished = 0; // Flag to indicate if the process generator has finished sending processes
 int active_cpu_time = 0; // Time the CPU is actively running processes
 
 int turnaround_times[100];
 float wta_list[100];
 int wait_times[100];
-int time_slice_start = -1;
+int time_slice_start = -1; // used for detect the quantum time
 
 int semid; // Semaphore ID to sync with process generator
 
@@ -83,18 +83,12 @@ void update_process_remaining_time(PCB *process)
 void run_RR_Algorithm()
 {
     if (current_process == NULL && rr_queue.size > 0) {
-       
-        printf("context switching\n in rr process = null");
         context_switching();
-        // return;
     }
 
     if (current_process != NULL) {
         update_process_remaining_time(current_process);
-
-
         if (get_clk() - time_slice_start >= quantum && rr_queue.size > 0) {
-            printf("i am context switch RR2\n");
             context_switching();
         }
     }
@@ -176,9 +170,7 @@ void receive_new_process(int msgq_id)
 
 void run_algorithm(int algorithm)
 {
-    // Try to check if semaphore is available (value > 0)
     int sem_val = semctl(semid, 0, GETVAL);
-    // printf("Semaphore value: %d\n",sem_val);
     if (sem_val <= 0) {
         // Semaphore is unavailable (0), process generator is sending processes
         // Don't run algorithm, just return
@@ -192,7 +184,6 @@ void run_algorithm(int algorithm)
         return;
     }
     
-    // Run the algorithm as normal
     if (algorithm == HPF)
         run_HPF_Algorithm();
     else if (algorithm == SRTN)
@@ -200,7 +191,6 @@ void run_algorithm(int algorithm)
     else if (algorithm == RR)
         run_RR_Algorithm();
     
-    // Release the semaphore
     up(semid);
 }
 
@@ -212,7 +202,7 @@ void start_process(PCB *process)
     process->start_time = get_clk();
     if (start_time == -1)
         start_time = process->start_time;
-    // Increment active CPU time
+
     active_cpu_time += process->execution_time;
 
     process->waiting_time = get_clk() - process->arrival_time;
@@ -356,65 +346,12 @@ void handle_process_completion(int signum)
     }
 }
 
-// void handle_sigchld(int signum)
-// {
-//     int status;
-//     pid_t pid;
-
-//     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-//         PCB *terminated_process = find_process_by_pid(pid);
-
-//         if (terminated_process && terminated_process->state != TERMINATED) {
-//             if (terminated_process->shm_id != -1) {
-//                 shmctl(terminated_process->shm_id, IPC_RMID, NULL);
-//                 terminated_process->shm_id = -1;
-//             }
-
-//             terminated_process->state = TERMINATED;
-
-//             int finish_time = get_clk();
-//             int ta = finish_time - terminated_process->arrival_time;
-//             float wta = roundf(((float)ta / terminated_process->execution_time) * 100) / 100;
-//             int wait = ta - terminated_process->execution_time;
-
-//             turnaround_times[finished_processes] = ta;
-//             wta_list[finished_processes] = wta;
-//             wait_times[finished_processes] = wait;
-
-//             log_process_state(terminated_process, "FINISHED");
-//             log_message(LOG_STAT, "Turnaround: %d, Weighted TA: %.2f, Wait: %d",
-//                         ta, wta, wait);
-
-//             log_process_event("finished", terminated_process, finish_time);
-
-//             finished_processes++;
-//             printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
-//             print_progress_bar(finished_processes, process_count, 20);
-
-//             if (current_process && current_process->pid == pid) {
-//                 free(current_process);
-//                 current_process = NULL;
-
-//                 if (generator_finished && algorithm == SRTN) {
-//                     context_switching();
-//                 }
-//             }
-//         }
-//     }
-// }
-
 int main(int argc, char *argv[])
 {
     FILE *log_file = fopen("scheduler.log", "w");
     if (log_file) {
         fclose(log_file);
     }
-
-    // struct sigaction sa_child;
-    // sa_child.sa_handler = handle_process_completion;
-    // sa_child.sa_flags = SA_NOCLDSTOP;
-    // sigemptyset(&sa_child.sa_mask);
-    // sigaction(SIGCHLD, &sa_child, NULL);
 
     signal(SIGUSR2, handle_process_completion);
     signal(SIGUSR1, handle_generator_completion);
@@ -448,8 +385,8 @@ int main(int argc, char *argv[])
             exit(1);
         }
     }
+
     semid = atoi(argv[2]);
-    printf("semaphore id in scheduler: %d\n", semid);
 
     print_divider("Scheduler Started");
     log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
@@ -468,7 +405,9 @@ int main(int argc, char *argv[])
 
         if (generator_finished &&
             (algorithm == RR ? rr_queue.size == 0 : ready_Heap->size == 0) &&
-            current_process == NULL) {
+            current_process == NULL)
+            // to check if all processes are finished and no new processes are coming
+        {
             break;
         }
     }

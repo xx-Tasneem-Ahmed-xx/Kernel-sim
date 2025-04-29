@@ -1,14 +1,11 @@
 #include "headers.h"
-#include "semaphores.h"
 
 PriorityQueue pq;
-PCBQueue ArrivalQueue;
-PCBQueue BurstQueue;
 
 int msgq_id;
 key_t msgq_key;
 pid_t scheduler_pid;
-int semid; // Global semaphore ID
+int semid;
 
 typedef struct
 {
@@ -92,32 +89,19 @@ int main(int argc, char *argv[])
     log_message(LOG_INFO, "Loading processes from %s", params.filename);
 
     int process_count = 0;
-
-    if (params.algorithm == SRTN)
-    {
-        pq_init(&pq, 20, SORT_BY_ARRIVAL_THEN_PRIORITY);
-    }
-    else
-    {
-        pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
-    }
-    queue_init(&ArrivalQueue, 20);
+    pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
 
     read_processes(params.filename, &pq);
     initializeIPC();
     
-    // Create a semaphore with initial value 1 (scheduler can run initially)
     semid = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
     if (semid == -1) {
         perror("semget failed");
         exit(1);
     }
-    // printf("semaphore id in process: %d\n", semid);
 
-  
-    // Initialize both semaphores to 1
     union semun arg;
-    arg.val = 1;  // Set the initial value to 1
+    arg.val = 1;
     if (semctl(semid, 0, SETVAL, arg) == -1) {
         perror("semctl failed");
         exit(1);
@@ -166,9 +150,7 @@ int main(int argc, char *argv[])
         
         int current_time = get_clk();
         if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
-            //print semaphore value
-            printf("Semaphore value: %d\n", semctl(semid, 0, GETVAL));
-            // Down semaphore before sending processes to block the scheduler
+
             down(semid);
             
             while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
@@ -185,8 +167,6 @@ int main(int argc, char *argv[])
                 new_pcb->remaining_time = p.execution_time;
 
                 createProcess(new_pcb);
-
-                queue_enqueue(&ArrivalQueue, *new_pcb);
 
                 pq_pop(&pq);
 
@@ -206,12 +186,8 @@ int main(int argc, char *argv[])
                 process_count++;
             }
             
-            // Up semaphore to let the scheduler run again
             up(semid);
-            printf("Semaphore value after up: %d\n", semctl(semid, 0, GETVAL));
         }
-
-        receive_terminated_processes();
 
         usleep(100000);
     }
@@ -289,45 +265,8 @@ void initializeIPC()
     }
 
     log_message(LOG_SYSTEM, "Message queue created with ID: %d", msgq_id);
-
-    key_t feedback_key = ftok("keyfile", 'B');
-    if (feedback_key == -1)
-    {
-        perror("Error creating feedback message queue key");
-        exit(EXIT_FAILURE);
     }
 
-    int feedback_msgq_id = msgget(feedback_key, IPC_CREAT | 0666);
-    if (feedback_msgq_id == -1)
-    {
-        perror("Error creating feedback message queue");
-        exit(EXIT_FAILURE);
-    }
-
-    log_message(LOG_SYSTEM, "Feedback message queue created with ID: %d", feedback_msgq_id);
-}
-
-void receive_terminated_processes()
-{
-    key_t feedback_key = ftok("keyfile", 'B');
-    int feedback_msgq_id = msgget(feedback_key, 0666);
-
-    if (feedback_msgq_id == -1)
-    {
-        return;
-    }
-
-    MsgBuffer message;
-    while (msgrcv(feedback_msgq_id, &message, sizeof(message.pcb), 2, IPC_NOWAIT) != -1)
-    {
-        PCB terminated_pcb = message.pcb;
-        queue_enqueue(&BurstQueue, terminated_pcb);
-
-        log_message(LOG_PROCESS, "Process %d completed", terminated_pcb.id_from_file);
-        log_message(LOG_STAT, "Final stats: Arrival=%d, Runtime=%d, Waiting=%d",
-                   terminated_pcb.arrival_time, terminated_pcb.execution_time, terminated_pcb.waiting_time);
-    }
-}
 void read_processes(const char *filename, PriorityQueue *pq)
 {
     FILE *file = fopen(filename, "r");
@@ -342,8 +281,7 @@ void read_processes(const char *filename, PriorityQueue *pq)
 
     while (fgets(line, sizeof(line), file))
     {
-        // Skip lines that start with "#changes"
-        if (strncmp(line, "#changes", 8) == 0) {
+        if (line[0] == '#') {
             continue;
         }
         
@@ -360,12 +298,8 @@ void clear_resources(int signum)
 {
     (void)signum;
     pq_free(&pq);
-    queue_free(&ArrivalQueue);
     msgctl(msgq_id, IPC_RMID, NULL);
-    
-    // Remove both semaphores
     semctl(semid, 0, IPC_RMID);
-    
     destroy_clk(1);
     log_message(LOG_SYSTEM, "Cleaned up and exiting");
     exit(0);
