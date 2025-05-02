@@ -108,3 +108,20 @@ bool deallocate_memory(PCB *process) {
     free(to_delete);
     return true;
 }
+
+
+void log_memory_event(int time, bool allocate, int bytes, int process_id, int start, int end) {
+    FILE *mem_file = fopen("memory.log", "a");
+    if (!mem_file) {
+        perror("Failed to open memory.log");
+        return;
+    }
+    if (allocate) {
+        fprintf(mem_file, "At time %d allocated %d bytes for process %d from %d to %d\n",
+                time, bytes, process_id, start, end);
+    } else {
+        fprintf(mem_file, "At time %d freed %d bytes from process %d from %d to %d\n",
+                time, bytes, process_id, start, end);
+    }
+    fclose(mem_file);
+}
