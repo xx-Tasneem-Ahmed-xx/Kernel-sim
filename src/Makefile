@@ -7,7 +7,7 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 # Source files
-COMMON_SRCS = DS/minHeap.c DS/priorityQueue.c DS/Queue.c pcb.c DS/comparators.c clk.c logger.c semaphores.c
+COMMON_SRCS = DS/minHeap.c DS/priorityQueue.c DS/Queue.c pcb.c DS/comparators.c clk.c logger.c semaphores.c memory_manager.c
 COMMON_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(COMMON_SRCS))
 
 # Ensure directories exist before building

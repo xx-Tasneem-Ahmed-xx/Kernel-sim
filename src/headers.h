@@ -14,6 +14,7 @@
 #include <math.h>
 #include <time.h>
 #include <sys/types.h>
+#include <stdbool.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
 #include <stdarg.h>
@@ -30,6 +31,7 @@
 #include "clk.h"
 #include "pcb.h"
 #include "process.h"
+#include "memory_manager.h"
 
 typedef enum { HPF, SRTN, RR } SchedulingAlgorithm;
 

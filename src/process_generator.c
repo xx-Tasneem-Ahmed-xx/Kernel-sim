@@ -1,23 +1,27 @@
 #include "headers.h"
 
 PriorityQueue pq;
+PCBQueue waiting_queue;
 
 int msgq_id;
 key_t msgq_key;
 pid_t scheduler_pid;
 int semid;
 
-typedef struct
-{
+typedef struct {
     SchedulingAlgorithm algorithm;
     int quantum;
-    const char* filename;
+    const char *filename;
 } SchedulingParams;
 
 void clear_resources(int signum);
+
 void read_processes(const char *filename, PriorityQueue *pq);
+
 void initializeIPC();
-void receive_terminated_processes();
+
+void handle_terminated_processes();
+
 void createProcess(PCB *process);
 
 int parse_args(int argc, char *argv[], SchedulingParams *params) {
@@ -32,22 +36,22 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
-            if (strcmp(argv[i+1], "rr") == 0) {
+            if (strcmp(argv[i + 1], "rr") == 0) {
                 params->algorithm = RR;
-            } else if (strcmp(argv[i+1], "hpf") == 0) {
+            } else if (strcmp(argv[i + 1], "hpf") == 0) {
                 params->algorithm = HPF;
-            } else if (strcmp(argv[i+1], "srtn") == 0) {
+            } else if (strcmp(argv[i + 1], "srtn") == 0) {
                 params->algorithm = SRTN;
             } else {
-                fprintf(stderr, "Unknown scheduling algorithm: %s\n", argv[i+1]);
+                fprintf(stderr, "Unknown scheduling algorithm: %s\n", argv[i + 1]);
                 return 0;
             }
             i++;
         } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
-            params->filename = argv[i+1];
+            params->filename = argv[i + 1];
             i++;
         } else if (strcmp(argv[i], "-q") == 0 && i + 1 < argc) {
-            params->quantum = atoi(argv[i+1]);
+            params->quantum = atoi(argv[i + 1]);
             i++;
         }
     }
@@ -63,10 +67,9 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
     return 1;
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     signal(SIGINT, clear_resources);
-
+    initialize_memory_Segment();
     SchedulingParams params;
     if (!parse_args(argc, argv, &params)) {
         exit(EXIT_FAILURE);
@@ -90,10 +93,10 @@ int main(int argc, char *argv[])
 
     int process_count = 0;
     pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
-
+    queue_init(&waiting_queue, 100);
     read_processes(params.filename, &pq);
     initializeIPC();
-    
+
     semid = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
     if (semid == -1) {
         perror("semget failed");
@@ -108,20 +111,16 @@ int main(int argc, char *argv[])
     }
 
     scheduler_pid = fork();
-    if (scheduler_pid == 0)
-    {
+    if (scheduler_pid == 0) {
         char algorithm_str[10], semid_str[10];
         sprintf(algorithm_str, "%d", params.algorithm);
         sprintf(semid_str, "%d", semid);
-        
-        if (params.algorithm == RR)
-        {
+
+        if (params.algorithm == RR) {
             char quantum_str[10];
             sprintf(quantum_str, "%d", params.quantum);
             execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, quantum_str, NULL);
-        }
-        else
-        {
+        } else {
             execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, NULL);
         }
         perror("Error executing scheduler");
@@ -129,8 +128,7 @@ int main(int argc, char *argv[])
     }
 
     pid_t clk_pid = fork();
-    if (clk_pid == 0)
-    {
+    if (clk_pid == 0) {
         signal(SIGINT, clear_resources);
         init_clk();
         sync_clk();
@@ -140,24 +138,38 @@ int main(int argc, char *argv[])
     sync_clk();
 
     Process p;
-    while (1)
-    {
-        if (pq_empty(&pq))
-        {
+    while (1) {
+        if (pq_empty(&pq) && queue_empty(&waiting_queue)) {
             log_message(LOG_INFO, "No more processes to schedule");
             break;
         }
-        
+
         int current_time = get_clk();
         if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
-
             down(semid);
-            
-            while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time)
-            {
+
+            while (!queue_empty(&waiting_queue)) {
+                PCB waiting_pcb = queue_front(&waiting_queue);
+
+                if (allocate_memory(&waiting_pcb)) {
+                    createProcess(&waiting_pcb);
+                    queue_dequeue(&waiting_queue);
+                } else break;
+
+                MsgBuffer message;
+                message.mtype = 1;
+                message.pcb = waiting_pcb;
+
+                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
+                    perror("Error sending process to scheduler");
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
                 p = pq_top(&pq);
 
-                PCB *new_pcb = (PCB *)malloc(sizeof(PCB));
+                PCB *new_pcb = (PCB *) malloc(sizeof(PCB));
                 new_pcb->id_from_file = p.id;
                 new_pcb->arrival_time = p.arrival_time;
                 new_pcb->execution_time = p.execution_time;
@@ -165,27 +177,30 @@ int main(int argc, char *argv[])
                 new_pcb->waiting_time = 0;
                 new_pcb->start_time = -1;
                 new_pcb->remaining_time = p.execution_time;
+                new_pcb->memory_size = p.memory_size;
 
-                createProcess(new_pcb);
+                if (allocate_memory(new_pcb))
+                    createProcess(new_pcb);
+                else
+                    queue_enqueue(&waiting_queue, *new_pcb);
 
                 pq_pop(&pq);
 
                 log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d",
-                           new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
+                            new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
 
                 MsgBuffer message;
                 message.mtype = 1;
                 message.pcb = *new_pcb;
 
-                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1)
-                {
+                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
                     perror("Error sending process to scheduler");
                     exit(EXIT_FAILURE);
                 }
 
                 process_count++;
             }
-            
+
             up(semid);
         }
 
@@ -205,7 +220,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void createProcess(PCB *process){
+void createProcess(PCB *process) {
     int shmid;
     int *shm_remaining_time;
     pid_t pid;
@@ -216,8 +231,8 @@ void createProcess(PCB *process){
         exit(-1);
     }
 
-    shm_remaining_time = (int *)shmat(shmid, NULL, 0);
-    if (shm_remaining_time == (int *)-1) {
+    shm_remaining_time = (int *) shmat(shmid, NULL, 0);
+    if (shm_remaining_time == (int *) -1) {
         perror("shmat failed");
         exit(-1);
     }
@@ -248,30 +263,25 @@ void createProcess(PCB *process){
     }
 }
 
-void initializeIPC()
-{
+void initializeIPC() {
     msgq_key = ftok("keyfile", 'A');
-    if (msgq_key == -1)
-    {
+    if (msgq_key == -1) {
         perror("Error creating message queue key");
         exit(EXIT_FAILURE);
     }
 
     msgq_id = msgget(msgq_key, IPC_CREAT | 0666);
-    if (msgq_id == -1)
-    {
+    if (msgq_id == -1) {
         perror("Error creating message queue");
         exit(EXIT_FAILURE);
     }
 
     log_message(LOG_SYSTEM, "Message queue created with ID: %d", msgq_id);
-    }
+}
 
-void read_processes(const char *filename, PriorityQueue *pq)
-{
+void read_processes(const char *filename, PriorityQueue *pq) {
     FILE *file = fopen(filename, "r");
-    if (!file)
-    {
+    if (!file) {
         perror("Failed to open processes.txt");
         exit(EXIT_FAILURE);
     }
@@ -279,14 +289,14 @@ void read_processes(const char *filename, PriorityQueue *pq)
     char line[256];
     fgets(line, sizeof(line), file);
 
-    while (fgets(line, sizeof(line), file))
-    {
+    while (fgets(line, sizeof(line), file)) {
         if (line[0] == '#') {
             continue;
         }
-        
+
         Process p;
-        if (sscanf(line, "%d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority) == 4) {
+        if (sscanf(line, "%d %d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority,
+                   &p.memory_size) == 5) {
             pq_push(pq, p);
         }
     }
@@ -294,9 +304,8 @@ void read_processes(const char *filename, PriorityQueue *pq)
     fclose(file);
 }
 
-void clear_resources(int signum)
-{
-    (void)signum;
+void clear_resources(int signum) {
+    (void) signum;
     pq_free(&pq);
     msgctl(msgq_id, IPC_RMID, NULL);
     semctl(semid, 0, IPC_RMID);
