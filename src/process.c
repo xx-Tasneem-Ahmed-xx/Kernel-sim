@@ -7,11 +7,11 @@
 #include <sys/shm.h>
 
 int runtime = 0;
-int *shared_remaining_time = NULL; 
+int *shared_remaining_time = NULL; // Pointer to shared memory
 int shmid_p = -1;
-pid_t scheduler_pid = -1; 
-int preTime = 0; 
-int currTime = 0; 
+pid_t scheduler_pid = -1;         // Store scheduler's PID
+pid_t process_generator_pid = -1; // Store process_generator 's PID
+
 void cleanup()
 {
     // Detach from shared memory
@@ -21,19 +21,10 @@ void cleanup()
     }
 }
 
-void cont_handler(int signum)
-{
-    // Update preTime to current time when process continues
-    preTime = get_clk();
-    log_message(LOG_PROCESS, "Process %d resumed at time %d", getpid(), preTime);
-}
-
 void run_process(int remaining_time, int shared_mem_id)
 {
     // Setup exit handler to clean up shared memory
     atexit(cleanup);
-    
-    signal(SIGCONT, cont_handler);
 
     // Attach to shared memory
     shmid_p = shared_mem_id;
@@ -50,7 +41,7 @@ void run_process(int remaining_time, int shared_mem_id)
     sync_clk();
 
     int currTime = get_clk();
-    preTime = currTime; // Initialize preTime (now a global variable)
+    int preTime = currTime;
 
     // Print initialization message
     log_message(LOG_PROCESS, "Process %d initialized with runtime=%d", getpid(), runtime);
@@ -58,25 +49,22 @@ void run_process(int remaining_time, int shared_mem_id)
     while ((*shared_remaining_time) > 0)
     {
         currTime = get_clk();
-        if (currTime - preTime == 1)
+        if (currTime != preTime)
         {
             preTime = currTime;
             (*shared_remaining_time)--;
-            log_message(LOG_PROCESS, "Process %d running at time %d, remaining time: %d", 
-            getpid(), get_clk(), *shared_remaining_time);
-            
+
+            // Print progress every 5 ticks or on last tick
             if (*shared_remaining_time % 5 == 0 || *shared_remaining_time == 0)
             {
+                log_message(LOG_PROCESS, "Process %d running at time %d, remaining time: %d",
+                            getpid(), get_clk(), *shared_remaining_time);
                 printf("%sProcess %d Progress:%s\n", COLOR_GREEN, getpid(), COLOR_RESET);
                 print_progress_bar(runtime - *shared_remaining_time, runtime, 20);
             }
         }
-        else if (currTime - preTime > 1)
-        {
-            // If the process is not running, wait for a second
-            preTime = currTime;
-        }
     }
+
     // Print completion message
     log_message(LOG_PROCESS, "Process %d finished at time %d", getpid(), get_clk());
     printf("%sProcess %d Progress:%s\n", COLOR_GREEN, getpid(), COLOR_RESET);
@@ -87,6 +75,9 @@ void run_process(int remaining_time, int shared_mem_id)
     {
         kill(scheduler_pid, SIGUSR2);
     }
+    if (process_generator_pid > 0)
+        kill(process_generator_pid, SIGUSR1);
+
 
     exit(0);
 }
@@ -102,6 +93,7 @@ int main(int argc, char *argv[])
     runtime = atoi(argv[1]);
     int shared_mem_id = atoi(argv[2]);
     scheduler_pid = atoi(argv[3]);
+    process_generator_pid = atoi(argv[4]);
 
     run_process(runtime, shared_mem_id);
     destroy_clk(0);
