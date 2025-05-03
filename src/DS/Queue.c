@@ -3,14 +3,17 @@
 #include <string.h>
 #include <stdio.h>
 
-void queue_init(PCBQueue *q, size_t capacity)
+PCBQueue *queue_init(size_t capacity)
 {
-    q->data = (PCB *)malloc(capacity * sizeof(PCB));
+    PCBQueue *q = malloc(sizeof(PCBQueue));
+    q->data = malloc(capacity * sizeof(PCB));
     q->front = 0;
     q->rear = 0;
     q->size = 0;
     q->capacity = capacity;
+    return q;
 }
+
 
 void queue_free(PCBQueue *q)
 {
@@ -93,7 +96,7 @@ void queue_print(PCBQueue *q)
         size_t index = (q->front + i) % q->capacity;
         printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
                q->data[index].id_from_file, q->data[index].pid, q->data[index].arrival_time,
-               q->data[index].execution_time, 
+               q->data[index].execution_time,
                // Simply use the remaining_time as is, since it's an integer, not a pointer
                q->data[index].remaining_time,
                q->data[index].priority);

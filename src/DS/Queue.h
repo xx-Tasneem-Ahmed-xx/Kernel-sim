@@ -12,7 +12,7 @@ typedef struct {
     size_t capacity;    
 } PCBQueue;          // Renamed from ProcessQueue to PCBQueue
 
-void queue_init(PCBQueue* q, size_t capacity);
+PCBQueue* queue_init( size_t capacity);
 void queue_free(PCBQueue* q);
 int queue_empty(PCBQueue* q);
 int queue_full(PCBQueue* q);

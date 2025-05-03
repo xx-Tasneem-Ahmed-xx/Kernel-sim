@@ -2,13 +2,13 @@
 #define PRIORITY_QUEUE_H
 
 #include <stddef.h>
-
+// todo move to headers
 struct process {
     int id;
     int arrival_time;
     int execution_time;
     int priority;
-
+    int memory_size;
     // RR-specific fields
     int os_pid;           // PID after fork
     int remaining_time;   // Remaining runtime
