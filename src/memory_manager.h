@@ -23,9 +23,9 @@ MemoryBlock *traverse_MemorySegment(MemoryBlock *root, const int needed_memory);
 
 int highestPowerOf2(const int x);
 
-bool allocate_memory(MemoryBlock *root, const pid_t process_pid, const int process_size);
+bool allocate_memory(MemoryBlock *root, const pid_t process_pid, const int process_size,int time);
 
-bool deallocate_memory(MemoryBlock *root, const pid_t process_pid);
+bool deallocate_memory(MemoryBlock *root, const pid_t process_pid,int time);
 
 void merge_buddy_blocks(MemoryBlock *block);
 
@@ -38,5 +38,9 @@ void print_memory_segment(const MemoryBlock *root, const int level);
 void print_memory(const MemoryBlock *root);
 
 void destroy_memory_segment(MemoryBlock *root);
+
+bool is_in_subtree(MemoryBlock *root, MemoryBlock *node);
+
+void log_memory_event(int time, bool allocate, int bytes, int process_id, int start, int end);
 
 #endif

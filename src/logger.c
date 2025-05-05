@@ -31,6 +31,9 @@ void log_message(LogLevel level, const char* format, ...) {
         case LOG_ERROR:
             printf("%s[ERROR]%s ", COLOR_RED, COLOR_RESET);
             break;
+        case LOG_WARNING:
+            printf("%s[WARNING]%s ", COLOR_YELLOW, COLOR_RESET);
+            break;
     }
     
     // Print the actual message

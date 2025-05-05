@@ -22,6 +22,7 @@ int wait_times[100];
 int time_slice_start = -1; // used for detect the quantum time
 
 int semid; // Semaphore ID to sync with process generator
+int clockValue;
 
 void log_process_event(const char *state, PCB *process, int finish_time) {
     FILE *log_file = fopen("scheduler.log", "a");
@@ -30,7 +31,7 @@ void log_process_event(const char *state, PCB *process, int finish_time) {
         return;
     }
 
-    int clk = get_clk();
+    int clk = clockValue;
     fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d",
             clk, process->id_from_file, state, process->arrival_time,
             process->execution_time, process->remaining_time, process->waiting_time);
@@ -85,7 +86,7 @@ void run_RR_Algorithm() {
 
     if (current_process != NULL) {
         update_process_remaining_time(current_process);
-        if (get_clk() - time_slice_start >= quantum && rr_queue.size > 0) {
+        if (clockValue - time_slice_start >= quantum && rr_queue.size > 0) {
             context_switching();
         }
     }
@@ -189,13 +190,13 @@ void start_process(PCB *process) {
     if (process == NULL) return;
 
     process->state = RUNNING;
-    process->start_time = get_clk();
+    process->start_time = clockValue;
     if (start_time == -1)
         start_time = process->start_time;
 
     active_cpu_time += process->execution_time;
 
-    process->waiting_time = get_clk() - process->arrival_time;
+    process->waiting_time = clockValue - process->arrival_time;
 
     if (kill(process->pid, SIGCONT) < 0) {
         log_message(LOG_ERROR, "Failed to start process %d", process->pid);
@@ -203,7 +204,7 @@ void start_process(PCB *process) {
         log_process_state(process, "STARTED");
         log_process_event("started", process, -1);
     }
-    time_slice_start = get_clk();
+    time_slice_start = clockValue;
 }
 
 void resume_process(PCB *process) {
@@ -211,7 +212,7 @@ void resume_process(PCB *process) {
 
     process->state = RUNNING;
     if (process->last_prempt_time != -1) {
-        process->waiting_time += get_clk() - process->last_prempt_time;
+        process->waiting_time += clockValue - process->last_prempt_time;
     }
 
     if (kill(process->pid, SIGCONT) < 0) {
@@ -220,7 +221,7 @@ void resume_process(PCB *process) {
         log_process_state(process, "RESUMED");
         log_process_event("resumed", process, -1);
     }
-    time_slice_start = get_clk();
+    time_slice_start = clockValue;
 }
 
 void preempt_process(PCB *process) {
@@ -228,7 +229,7 @@ void preempt_process(PCB *process) {
 
     update_process_remaining_time(process);
     process->state = READY;
-    process->last_prempt_time = get_clk();
+    process->last_prempt_time = clockValue;
 
     if (kill(process->pid, SIGSTOP) < 0) {
         log_message(LOG_ERROR, "Failed to preempt process %d", process->pid);
@@ -262,7 +263,7 @@ void context_switching() {
         }
     }
 
-    log_message(LOG_SYSTEM, "Performing context switch at time %d", get_clk());
+    log_message(LOG_SYSTEM, "Performing context switch at time %d", clockValue);
 
     if (algorithm == RR) {
         if (rr_queue.size > 0) {
@@ -305,7 +306,7 @@ void handle_process_completion(int signum) {
 
     terminated_process->state = TERMINATED;
 
-    int finish_time = get_clk();
+    int finish_time = clockValue;
     int ta = finish_time - terminated_process->arrival_time;
     float wta = roundf(((float) ta / terminated_process->execution_time) * 100) / 100;
     int wait = ta - terminated_process->execution_time;
@@ -384,6 +385,7 @@ int main(int argc, char *argv[]) {
     int msgq_id = handle_message_queue('A', IPC_CREAT | 0666, 1);
 
     while (1) {
+        clockValue = get_clk();
         receive_new_process(msgq_id);
 
         run_algorithm(algorithm);
@@ -391,7 +393,6 @@ int main(int argc, char *argv[]) {
         if (generator_finished &&
             (algorithm == RR ? rr_queue.size == 0 : ready_Heap->size == 0) &&
             current_process == NULL)
-        // to check if all processes are finished and no new processes are coming
         {
             break;
         }
@@ -399,7 +400,7 @@ int main(int argc, char *argv[]) {
 
     print_divider("Scheduler Statistics");
 
-    int total_time = get_clk() - start_time;
+    int total_time = clockValue - start_time;
     float cpu_util = total_time > 0 ? ((float) active_cpu_time / total_time) * 100 : 0;
 
     float avg_ta = 0, avg_wta = 0, avg_wait = 0, std_wta = 0;

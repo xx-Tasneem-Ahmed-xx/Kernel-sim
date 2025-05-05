@@ -72,11 +72,11 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
     return 1;
 }
 
-void serve_waiting_queue() {
+void serve_waiting_queue(int time) {
     while (!queue_empty(&waiting_queue)) {
         PCB waiting_pcb = queue_front(&waiting_queue);
 
-        if (allocate_memory(Memory_Segment, waiting_pcb.id_from_file, waiting_pcb.memory_size)) {
+        if (allocate_memory(Memory_Segment, waiting_pcb.id_from_file, waiting_pcb.memory_size, time)) {
             createProcess(&waiting_pcb);
             update_id(waiting_pcb.id_from_file, waiting_pcb.pid, Memory_Segment);
             queue_dequeue(&waiting_queue);
@@ -96,6 +96,13 @@ void serve_waiting_queue() {
 int main(int argc, char *argv[]) {
     signal(SIGINT, clear_resources);
     signal(SIGCHLD, handle_children_termination);
+    // Clear log files at the beginning
+    FILE *mem_log = fopen("memory.log", "w");
+    if (mem_log) {
+        fclose(mem_log);
+    } else {
+        perror("Failed to clear memory.log");
+    }
 
     SchedulingParams params;
     if (!parse_args(argc, argv, &params)) {
@@ -171,12 +178,12 @@ int main(int argc, char *argv[]) {
             log_message(LOG_INFO, "No more processes to schedule");
             break;
         }
-        serve_waiting_queue();
         int current_time = get_clk();
+        serve_waiting_queue(current_time);
         if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
             down(semid);
 
-            serve_waiting_queue();
+            serve_waiting_queue(current_time);
 
             while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
                 p = pq_top(&pq);
@@ -191,7 +198,7 @@ int main(int argc, char *argv[]) {
                 new_pcb->remaining_time = p.execution_time;
                 new_pcb->memory_size = p.memory_size;
 
-                if (allocate_memory(Memory_Segment, new_pcb->id_from_file, new_pcb->memory_size)) {
+                if (allocate_memory(Memory_Segment, new_pcb->id_from_file, new_pcb->memory_size,current_time)){
                     createProcess(new_pcb);
                     update_id(new_pcb->id_from_file, new_pcb->pid, Memory_Segment);
                 } else {
@@ -220,10 +227,6 @@ int main(int argc, char *argv[]) {
             up(semid);
         }
 
-        // print memory segment every 3 sec
-        if (current_time % 3 == 0) {
-            print_memory(Memory_Segment);
-        }
         usleep(100000);
     }
 
@@ -335,7 +338,7 @@ void handle_children_termination(int signum) {
                 log_message(LOG_SYSTEM, "Scheduler terminated");
                 clear_resources(0);
             }
-            deallocate_memory(Memory_Segment, pid);
+            deallocate_memory(Memory_Segment, pid,get_clk());
         } else if (WIFSIGNALED(status)) {
             printf("Child %d was killed by signal %d\n", pid, WTERMSIG(status));
         }
@@ -350,7 +353,7 @@ void clear_resources(int signum) {
     semctl(semid, 0, IPC_RMID);
     destroy_clk(1);
     print_memory(Memory_Segment);
-    destroy_memory_segment(Memory_Segment);
+    destroy_memory_segment(Memory_Segment);   
     log_message(LOG_SYSTEM, "Cleaned up and exiting");
     exit(0);
 }

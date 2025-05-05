@@ -86,7 +86,59 @@ MemoryBlock *traverse_MemorySegment(MemoryBlock *root, const int needed_memory) 
     return traverse_MemorySegment(root->right_child, needed_memory);
 }
 
-bool allocate_memory(MemoryBlock *root, const int id_from_file, const int process_size) {
+// Calculate memory block address based on its position in the tree
+void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *end) {
+    if (root == NULL || block == NULL) {
+        *start = -1;
+        *end = -1;
+        return;
+    }
+    
+    // If searching for root itself
+    if (root == block) {
+        *start = 0;
+        *end = root->size - 1;
+        return;
+    }
+    
+    // Traverse the tree to find the block's position
+    int base = 0;
+    int size = root->size;
+    MemoryBlock *current = root;
+    
+    while (current != NULL && current != block) {
+        size = size / 2;
+        
+        // Check if block is in left subtree
+        if (is_in_subtree(current->left_child, block)) {
+            current = current->left_child;
+            // Left subtree keeps same base address
+        }
+        // Check if block is in right subtree
+        else if (is_in_subtree(current->right_child, block)) {
+            current = current->right_child;
+            base = base + size; // Right subtree starts at middle of parent's range
+        }
+        else {
+            // Block not found
+            *start = -1;
+            *end = -1;
+            return;
+        }
+    }
+    
+    *start = base;
+    *end = base + block->size - 1;
+}
+
+// Helper function to check if a node is in a subtree
+bool is_in_subtree(MemoryBlock *root, MemoryBlock *node) {
+    if (root == NULL) return false;
+    if (root == node) return true;
+    return is_in_subtree(root->left_child, node) || is_in_subtree(root->right_child, node);
+}
+
+bool allocate_memory(MemoryBlock *root, const int id_from_file, const int process_size , int time){
     const int memory_needed = highestPowerOf2(process_size);
 
     if (root == NULL) {
@@ -97,14 +149,21 @@ bool allocate_memory(MemoryBlock *root, const int id_from_file, const int proces
     if (new_block != NULL) {
         new_block->id_from_file = id_from_file;
         new_block->allocated = process_size;
+        
+        // Calculate block address
+        int start = -1, end = -1;
+        get_block_address(root, new_block, &start, &end);
+        
         log_message(
-            LOG_INFO, "Memory segment allocated successfully for processID=%d MEMORY allocated=%d memory needed=%d\n",
-            id_from_file,
-            new_block->allocated, new_block->size);
+            LOG_INFO, "Memory segment allocated successfully for processID=%d MEMORY allocated=%d memory needed=%d from=%d to=%d\n",
+            id_from_file, new_block->allocated, new_block->size, start, end);
+        
+        // Log the memory allocation event
+        log_memory_event(time, 1, process_size, id_from_file, start, end);
         return true;
     }
-    log_message(LOG_ERROR, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
-                process_size);
+    // log_message(LOG_WARNING, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
+                // process_size);
     return false;
 }
 
@@ -127,7 +186,6 @@ void update_id(const int pid_from_file, const pid_t pid, MemoryBlock *root) {
 
     if (found) {
         found->process_pid = pid;
-        log_message(LOG_ERROR, "updated process%d with pid=%d\n\n", found->id_from_file, found->process_pid);
     }
 }
 
@@ -155,20 +213,27 @@ void merge_buddy_blocks(MemoryBlock *block) {
     }
 }
 
-bool deallocate_memory(MemoryBlock *root, const pid_t pid) {
+bool deallocate_memory(MemoryBlock *root, const pid_t pid, int time) {
     MemoryBlock *to_delete = get_Process_Memory_Segment(root, -1, pid);
-
+    
     if (to_delete == NULL)
         return false;
-
+    
+    int start = -1, end = -1;
+    get_block_address(root, to_delete, &start, &end);
+    
+    // Log deallocated memory before actually deallocating it
+    log_memory_event(time, 0, to_delete->allocated, to_delete->id_from_file, start, end);
+    log_message(LOG_INFO, "Memory segment deallocated for process ID=%d, memory freed=%d bytes, address range=[%d-%d]",
+               to_delete->id_from_file, to_delete->allocated, start, end);
+    
     to_delete->process_pid = -1;
     to_delete->id_from_file = -1;
     to_delete->allocated = 0;
     merge_buddy_blocks(to_delete);
-
+    
     return true;
 }
-
 
 void log_memory_event(int time, bool allocate, int bytes, int process_id, int start, int end) {
     FILE *mem_file = fopen("memory.log", "a");
@@ -185,6 +250,7 @@ void log_memory_event(int time, bool allocate, int bytes, int process_id, int st
     }
     fclose(mem_file);
 }
+
 void destroy_memory_segment(MemoryBlock *root) {
     // Base case: if root is NULL, nothing to free
     if (root == NULL) {
@@ -215,17 +281,14 @@ void destroy_memory_segment(MemoryBlock *root) {
 }
 
 void print_memory_segment(const MemoryBlock *root, const int level) {
-    // Base case: if root is NULL, return
     if (root == NULL) {
         return;
     }
 
-    // Create indentation based on the level
     for (int i = 0; i < level; i++) {
         printf("  ");
     }
 
-    // Print the current node information
     printf("Block [Size: %d] ", root->size);
 
     if (root->allocated > 0) {
@@ -237,7 +300,6 @@ void print_memory_segment(const MemoryBlock *root, const int level) {
 
     printf("\n");
 
-    // Recursively print left and right subtrees with increased indentation
     print_memory_segment(root->left_child, level + 1);
     print_memory_segment(root->right_child, level + 1);
 }
