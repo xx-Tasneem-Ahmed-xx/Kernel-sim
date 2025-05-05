@@ -139,6 +139,7 @@ int main(int argc, char *argv[]) {
     }
 
     scheduler_pid = fork();
+    log_message(LOG_INFO, "Scheduler process created PID%d\n", scheduler_pid);
     if (scheduler_pid == 0) {
         char algorithm_str[10], semid_str[10];
         sprintf(algorithm_str, "%d", params.algorithm);
@@ -174,7 +175,19 @@ int main(int argc, char *argv[]) {
         serve_waiting_queue();
         int current_time = get_clk();
         if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
-            down(semid);
+            int sem_val = semctl(semid, 0, GETVAL);
+            if (sem_val <= 0) {
+                // Semaphore is unavailable (0), process generator is sending processes
+                // Don't run algorithm, just return
+                continue;
+            }
+
+            // Try to down the semaphore (non-blocking)
+            int result = down_nb(semid);
+            if (result < 0) {
+                // Failed to acquire semaphore
+                continue;
+            }
 
             serve_waiting_queue();
 
@@ -221,9 +234,9 @@ int main(int argc, char *argv[]) {
         }
 
         // print memory segment every 3 sec
-        if (current_time % 3 == 0) {
-            print_memory(Memory_Segment);
-        }
+        // if (current_time % 3 == 0) {
+        //     print_memory(Memory_Segment);
+        // }
         usleep(100000);
     }
 
