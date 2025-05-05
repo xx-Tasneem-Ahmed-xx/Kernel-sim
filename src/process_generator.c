@@ -8,6 +8,11 @@ key_t msgq_key;
 pid_t scheduler_pid;
 int semid;
 
+// memory segment
+const int TOTAL_MEMORY_SIZE = 1024;
+MemoryBlock *Memory_Segment = NULL;
+
+
 typedef struct {
     SchedulingAlgorithm algorithm;
     int quantum;
@@ -20,7 +25,7 @@ void read_processes(const char *filename, PriorityQueue *pq);
 
 void initializeIPC();
 
-void handle_terminated_processes();
+void handle_children_termination(int signum);
 
 void createProcess(PCB *process);
 
@@ -67,9 +72,31 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
     return 1;
 }
 
+void serve_waiting_queue() {
+    while (!queue_empty(&waiting_queue)) {
+        PCB waiting_pcb = queue_front(&waiting_queue);
+
+        if (allocate_memory(Memory_Segment, waiting_pcb.id_from_file, waiting_pcb.memory_size)) {
+            createProcess(&waiting_pcb);
+            update_id(waiting_pcb.id_from_file, waiting_pcb.pid, Memory_Segment);
+            queue_dequeue(&waiting_queue);
+        } else break;
+
+        MsgBuffer message;
+        message.mtype = 1;
+        message.pcb = waiting_pcb;
+
+        if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
+            perror("Error sending process to scheduler");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     signal(SIGINT, clear_resources);
-    initialize_memory_Segment();
+    signal(SIGCHLD, handle_children_termination);
+
     SchedulingParams params;
     if (!parse_args(argc, argv, &params)) {
         exit(EXIT_FAILURE);
@@ -94,6 +121,7 @@ int main(int argc, char *argv[]) {
     int process_count = 0;
     pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
     queue_init(&waiting_queue, 100);
+    initialize_memory_Segment(&Memory_Segment, TOTAL_MEMORY_SIZE);
     read_processes(params.filename, &pq);
     initializeIPC();
 
@@ -143,28 +171,12 @@ int main(int argc, char *argv[]) {
             log_message(LOG_INFO, "No more processes to schedule");
             break;
         }
-
+        serve_waiting_queue();
         int current_time = get_clk();
         if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
             down(semid);
 
-            while (!queue_empty(&waiting_queue)) {
-                PCB waiting_pcb = queue_front(&waiting_queue);
-
-                if (allocate_memory(&waiting_pcb)) {
-                    createProcess(&waiting_pcb);
-                    queue_dequeue(&waiting_queue);
-                } else break;
-
-                MsgBuffer message;
-                message.mtype = 1;
-                message.pcb = waiting_pcb;
-
-                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
-                    perror("Error sending process to scheduler");
-                    exit(EXIT_FAILURE);
-                }
-            }
+            serve_waiting_queue();
 
             while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
                 p = pq_top(&pq);
@@ -179,10 +191,14 @@ int main(int argc, char *argv[]) {
                 new_pcb->remaining_time = p.execution_time;
                 new_pcb->memory_size = p.memory_size;
 
-                if (allocate_memory(new_pcb))
+                if (allocate_memory(Memory_Segment, new_pcb->id_from_file, new_pcb->memory_size)) {
                     createProcess(new_pcb);
-                else
+                    update_id(new_pcb->id_from_file, new_pcb->pid, Memory_Segment);
+                } else {
                     queue_enqueue(&waiting_queue, *new_pcb);
+                    pq_pop(&pq);
+                    continue;
+                }
 
                 pq_pop(&pq);
 
@@ -204,6 +220,10 @@ int main(int argc, char *argv[]) {
             up(semid);
         }
 
+        // print memory segment every 3 sec
+        if (current_time % 3 == 0) {
+            print_memory(Memory_Segment);
+        }
         usleep(100000);
     }
 
@@ -304,12 +324,33 @@ void read_processes(const char *filename, PriorityQueue *pq) {
     fclose(file);
 }
 
+void handle_children_termination(int signum) {
+    int status;
+    pid_t pid;
+
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (WIFEXITED(status)) {
+            printf("Child %d exited with status %d\n", pid, WEXITSTATUS(status));
+            if (pid == scheduler_pid) {
+                log_message(LOG_SYSTEM, "Scheduler terminated");
+                clear_resources(0);
+            }
+            deallocate_memory(Memory_Segment, pid);
+        } else if (WIFSIGNALED(status)) {
+            printf("Child %d was killed by signal %d\n", pid, WTERMSIG(status));
+        }
+    }
+    signal(SIGCHLD, handle_children_termination);
+}
+
 void clear_resources(int signum) {
     (void) signum;
     pq_free(&pq);
     msgctl(msgq_id, IPC_RMID, NULL);
     semctl(semid, 0, IPC_RMID);
     destroy_clk(1);
+    print_memory(Memory_Segment);
+    destroy_memory_segment(Memory_Segment);
     log_message(LOG_SYSTEM, "Cleaned up and exiting");
     exit(0);
 }
