@@ -73,23 +73,35 @@ int parse_args(int argc, char *argv[], SchedulingParams *params) {
 }
 
 void serve_waiting_queue() {
+    PCBQueue temp_queue;
+    queue_init(&temp_queue, 100);
+
     while (!queue_empty(&waiting_queue)) {
         PCB waiting_pcb = queue_front(&waiting_queue);
+        queue_dequeue(&waiting_queue);
 
         if (allocate_memory(Memory_Segment, waiting_pcb.id_from_file, waiting_pcb.memory_size)) {
             createProcess(&waiting_pcb);
             update_id(waiting_pcb.id_from_file, waiting_pcb.pid, Memory_Segment);
-            queue_dequeue(&waiting_queue);
-        } else break;
 
-        MsgBuffer message;
-        message.mtype = 1;
-        message.pcb = waiting_pcb;
+            //send process to scheduler
+            MsgBuffer message;
+            message.mtype = 1;
+            message.pcb = waiting_pcb;
 
-        if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
-            perror("Error sending process to scheduler");
-            exit(EXIT_FAILURE);
+            if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
+                perror("Error sending process to scheduler");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            queue_enqueue(&temp_queue, waiting_pcb);
         }
+    }
+
+    while (!queue_empty(&temp_queue)) {
+        PCB waiting_pcb = queue_front(&temp_queue);
+        queue_dequeue(&temp_queue);
+        queue_enqueue(&waiting_queue, waiting_pcb);
     }
 }
 
@@ -210,6 +222,10 @@ int main(int argc, char *argv[]) {
                 } else {
                     queue_enqueue(&waiting_queue, *new_pcb);
                     pq_pop(&pq);
+                    log_message(LOG_PROCESS,
+                                "Process %d arrived at time %d, Runtime: %d, Priority: %d, Can't allocate memory for it and added to waiting queue",
+                                new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
+
                     continue;
                 }
 

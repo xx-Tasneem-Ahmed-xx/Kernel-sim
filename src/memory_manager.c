@@ -103,7 +103,7 @@ bool allocate_memory(MemoryBlock *root, const int id_from_file, const int proces
             new_block->allocated, new_block->size);
         return true;
     }
-    // log_message(LOG_ERROR, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
+    // log_message(LOG_INFO, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
     //             process_size);
     return false;
 }
@@ -127,7 +127,7 @@ void update_id(const int pid_from_file, const pid_t pid, MemoryBlock *root) {
 
     if (found) {
         found->process_pid = pid;
-        log_message(LOG_ERROR, "updated process%d with pid=%d\n\n", found->id_from_file, found->process_pid);
+        log_message(LOG_INFO, "updated process%d with pid=%d\n\n", found->id_from_file, found->process_pid);
     }
 }
 
