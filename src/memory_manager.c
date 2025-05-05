@@ -162,8 +162,8 @@ bool allocate_memory(MemoryBlock *root, const int id_from_file, const int proces
         log_memory_event(time, 1, process_size, id_from_file, start, end);
         return true;
     }
-    // log_message(LOG_WARNING, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
-                // process_size);
+    // log_message(LOG_INFO, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
+    //             process_size);
     return false;
 }
 
