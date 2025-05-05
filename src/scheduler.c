@@ -324,11 +324,6 @@ void handle_process_completion(int signum) {
     printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
     print_progress_bar(finished_processes, process_count, 20);
 
-
-    if (deallocate_memory(terminated_process))
-        log_message(LOG_INFO, "Memory deallocated successfully");
-    else log_message(LOG_ERROR, "Failed to deallocate memory");
-
     free(current_process);
     current_process = NULL;
 
