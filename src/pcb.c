@@ -1,8 +1,8 @@
 #include "headers.h"
 #include "pcb.h"
-Node *ready_Queue = NULL;
-int process_Count = 0;
+
 const char* ProcessStateNames[] = {
+    "WAITING",   // Added to match enum definition if used
     "READY",
     "RUNNING",
     "STOPPED",

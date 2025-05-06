@@ -55,10 +55,15 @@ void queue_enqueue(PCBQueue *q, PCB value)
         queue_resize(q, q->capacity * 2);
     }
 
+    // Verify semaphore ID before enqueuing
+    if (value.sync_semid <= 0) {
+        printf("Warning: Enqueueing process %d with invalid semaphore ID %d\n", 
+               value.id_from_file, value.sync_semid);
+    }
+
     q->data[q->rear] = value;
     q->rear = (q->rear + 1) % q->capacity;
     q->size++;
-    // queue_print(q); // Print the queue after enqueueing
 }
 
 PCB queue_front(PCBQueue *q)
@@ -70,7 +75,16 @@ PCB queue_front(PCBQueue *q)
         printf("Error: Attempt to access front of empty queue\n");
         return empty;
     }
-    return q->data[q->front];
+    
+    PCB front = q->data[q->front];
+    
+    // Check for valid semaphore ID
+    if (front.sync_semid <= 0) {
+        printf("Warning: Front queue process %d has invalid semaphore ID %d\n", 
+               front.id_from_file, front.sync_semid);
+    }
+    
+    return front;
 }
 
 void queue_dequeue(PCBQueue *q)
@@ -91,11 +105,13 @@ void queue_print(PCBQueue *q)
     for (size_t i = 0; i < q->size; i++)
     {
         size_t index = (q->front + i) % q->capacity;
-        printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
+        printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d , semaphore ID: %d\n",
                q->data[index].id_from_file, q->data[index].pid, q->data[index].arrival_time,
                q->data[index].execution_time, 
                // Simply use the remaining_time as is, since it's an integer, not a pointer
                q->data[index].remaining_time,
-               q->data[index].priority);
+               q->data[index].priority,
+               q->data[index].sync_semid);
+
     }
 }

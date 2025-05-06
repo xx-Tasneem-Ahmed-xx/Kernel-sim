@@ -86,7 +86,6 @@ MemoryBlock *traverse_MemorySegment(MemoryBlock *root, const int needed_memory) 
     return traverse_MemorySegment(root->right_child, needed_memory);
 }
 
-// Calculate memory block address based on its position in the tree
 void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *end) {
     if (root == NULL || block == NULL) {
         *start = -1;
@@ -94,14 +93,12 @@ void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *e
         return;
     }
     
-    // If searching for root itself
     if (root == block) {
         *start = 0;
         *end = root->size - 1;
         return;
     }
     
-    // Traverse the tree to find the block's position
     int base = 0;
     int size = root->size;
     MemoryBlock *current = root;
@@ -109,18 +106,14 @@ void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *e
     while (current != NULL && current != block) {
         size = size / 2;
         
-        // Check if block is in left subtree
         if (is_in_subtree(current->left_child, block)) {
             current = current->left_child;
-            // Left subtree keeps same base address
         }
-        // Check if block is in right subtree
         else if (is_in_subtree(current->right_child, block)) {
             current = current->right_child;
-            base = base + size; // Right subtree starts at middle of parent's range
+            base = base + size; 
         }
         else {
-            // Block not found
             *start = -1;
             *end = -1;
             return;
@@ -131,7 +124,6 @@ void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *e
     *end = base + block->size - 1;
 }
 
-// Helper function to check if a node is in a subtree
 bool is_in_subtree(MemoryBlock *root, MemoryBlock *node) {
     if (root == NULL) return false;
     if (root == node) return true;
@@ -167,7 +159,6 @@ bool allocate_memory(MemoryBlock *root, const int id_from_file, const int proces
     return false;
 }
 
-//search by pid or id_from_file
 MemoryBlock *get_Process_Memory_Segment(MemoryBlock *root, const int id_from_file, const int pid) {
     if (root == NULL)
         return NULL;
@@ -190,7 +181,6 @@ void update_id(const int pid_from_file, const pid_t pid, MemoryBlock *root) {
 }
 
 void merge_buddy_blocks(MemoryBlock *block) {
-    // If we don't have a parent, we can't merge
     if (block == NULL || block->parent == NULL)
         return;
 
@@ -252,21 +242,17 @@ void log_memory_event(int time, bool allocate, int bytes, int process_id, int st
 }
 
 void destroy_memory_segment(MemoryBlock *root) {
-    // Base case: if root is NULL, nothing to free
     if (root == NULL) {
         return;
     }
 
-    // Recursively destroy left and right subtrees first (post-order traversal)
     destroy_memory_segment(root->left_child);
     destroy_memory_segment(root->right_child);
 
-    // Debug information (optional)
     if (root->allocated > 0) {
         printf("Freeing block with PID %d, size %d\n", root->process_pid, root->size);
     }
 
-    // Clear the data (optional, but can help catch use-after-free bugs)
     root->left_child = NULL;
     root->right_child = NULL;
     root->parent = NULL;
@@ -275,7 +261,6 @@ void destroy_memory_segment(MemoryBlock *root) {
     root->allocated = 0;
     root->id_from_file = -1;
 
-    // Finally, free the block itself
     free(root);
     root = NULL;
 }

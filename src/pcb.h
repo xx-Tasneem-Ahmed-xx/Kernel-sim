@@ -25,6 +25,7 @@ typedef struct PCB
     int last_prempt_time;
     int shm_id; // Shared memory ID for remaining time
     int memory_size;
+    int sync_semid;
     ProcessState state;
 } PCB;
 

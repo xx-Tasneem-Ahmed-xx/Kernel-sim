@@ -11,18 +11,178 @@ PCB *current_process = NULL;
 PCBQueue rr_queue;
 int process_count = 0;
 int finished_processes = 0;
-int start_time = -1; // Start time of the scheduler with the first process
+int start_time = -1; 
 int quantum = 0;
-int generator_finished = 0; // Flag to indicate if the process generator has finished sending processes
-int active_cpu_time = 0; // Time the CPU is actively running processes
+int generator_finished = 0; 
+int active_cpu_time = 0; 
 
 int turnaround_times[100];
 float wta_list[100];
 int wait_times[100];
-int time_slice_start = -1; // used for detect the quantum time
+int time_slice_start = -1; 
 
-int semid; // Semaphore ID to sync with process generator
+int semid;
 int clockValue;
+
+void log_process_event(const char *state, PCB *process, int finish_time);
+PCB* find_process_by_pid(pid_t pid);
+void handle_generator_completion(int signum);
+void update_process_remaining_time(PCB *process);
+void run_RR_Algorithm();
+void run_SRTN_Algorithm();
+void run_HPF_Algorithm();
+void handle_process_arrival(PCB *process);
+void handle_process_completion(int signum);
+void run_algorithm(int algorithm);
+void start_process(PCB *process);
+void resume_process(PCB *process);
+void preempt_process(PCB *process);
+void context_switching();
+void receive_new_process(int msgq_id);
+int handle_message_queue(char key_char, int flags, int exit_on_error);
+
+int main(int argc, char *argv[]) {
+    FILE *log_file = fopen("scheduler.log", "w");
+    if (log_file) {
+        fclose(log_file);
+    }
+
+    signal(SIGUSR2, handle_process_completion);
+    signal(SIGUSR1, handle_generator_completion);
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <algorithm> [quantum] <semaphore_id>\n", argv[0]);
+        exit(1);
+    }
+
+    algorithm = atoi(argv[1]);
+    const char *algorithm_name = "";
+
+    if (algorithm == SRTN) {
+        algorithm_name = "Shortest Remaining Time Next";
+        ready_Heap = create_min_heap(compare_remaining_time);
+    } else if (algorithm == HPF) {
+        algorithm_name = "Highest Priority First";
+        ready_Heap = create_min_heap(compare_priority);
+    } else if (algorithm == RR) {
+        algorithm_name = "Round Robin";
+        if (argc < 4) {
+            log_message(LOG_ERROR, "RR algorithm requires quantum value and semaphore ID");
+            exit(1);
+        }
+        quantum = atoi(argv[3]);
+
+        queue_init(&rr_queue, 100);
+    } else {
+        if (argc < 3) {
+            log_message(LOG_ERROR, "Missing semaphore ID argument");
+            exit(1);
+        }
+    }
+
+    semid = atoi(argv[2]);
+    
+    // Initialize semaphore to 0 so processes will wait initially
+    semctl(semid, 0, SETVAL, 0);
+
+    print_divider("Scheduler Started");
+    log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
+    if (algorithm == RR) {
+        log_message(LOG_SYSTEM, "Quantum: %d", quantum);
+    }
+
+    sync_clk();
+
+    int msgq_id = handle_message_queue('A', IPC_CREAT | 0666, 1);
+    int current_time = get_clk();
+    clockValue = current_time-1;
+    
+    while (1) {
+        if (generator_finished &&
+            (algorithm == RR ? rr_queue.size == 0 : ready_Heap->size == 0) &&
+            current_process == NULL)
+        {
+            break;
+        }
+        int result = down_nb(semid);
+        if (result < 0) {
+            continue;
+        }
+        receive_new_process(msgq_id);
+        // up(semid);
+        current_time = get_clk();
+        if(current_time != clockValue) {
+            clockValue = current_time;
+            
+            log_message(LOG_SYSTEM, "Scheduler running at time %d", clockValue);
+            
+            // Scheduler work for this tick
+            run_algorithm(algorithm);
+            
+            //Signal all waiting processes to run for this tick
+            // Set semaphore to 1 to allow one process to run at a time
+            if(current_process !=NULL)
+                 semctl(current_process->sync_semid, 0, SETVAL, 1);
+            log_message(LOG_SYSTEM, "Scheduler signaling processes to run at time %d", clockValue);
+            usleep(10000);
+            
+            if(current_process !=NULL){
+              update_process_remaining_time(current_process);
+              printf(" remaining time %d\n", current_process->remaining_time);
+            }
+            // Small delay to ensure processes get a chance to run
+        }
+        while(get_clk() == current_time) {
+            usleep(1000); // Sleep a bit to reduce CPU usage
+        }
+    }
+
+    print_divider("Scheduler Statistics");
+
+    int total_time = clockValue - start_time;
+    float cpu_util = total_time > 0 ? ((float) active_cpu_time / total_time) * 100 : 0;
+
+    float avg_ta = 0, avg_wta = 0, avg_wait = 0, std_wta = 0;
+
+    for (int i = 0; i < finished_processes; i++) {
+        avg_ta += turnaround_times[i];
+        avg_wta += wta_list[i];
+        avg_wait += wait_times[i];
+    }
+
+    if (finished_processes > 0) {
+        avg_ta /= finished_processes;
+        avg_wta /= finished_processes;
+        avg_wait /= finished_processes;
+
+        for (int i = 0; i < finished_processes; i++) {
+            std_wta += pow(wta_list[i] - avg_wta, 2);
+        }
+        std_wta = sqrt(std_wta / finished_processes);
+    }
+
+    log_message(LOG_STAT, "Total processes: %d", process_count);
+    log_message(LOG_STAT, "CPU utilization: %.2f%%", cpu_util);
+    log_message(LOG_STAT, "Avg turnaround time: %.2f", avg_ta);
+    log_message(LOG_STAT, "Avg weighted turnaround time: %.2f", avg_wta);
+    log_message(LOG_STAT, "Std weighted turnaround time: %.2f", std_wta);
+    log_message(LOG_STAT, "Avg waiting time: %.2f", avg_wait);
+
+    FILE *perf_file = fopen("scheduler.perf", "w");
+    if (perf_file) {
+        fprintf(perf_file, "CPU utilization = %.2f%%\n", cpu_util);
+        fprintf(perf_file, "Avg WTA = %.2f\n", avg_wta);
+        fprintf(perf_file, "Avg Waiting = %.2f\n", avg_wait);
+        fprintf(perf_file, "Std WTA = %.2f\n", std_wta);
+        fclose(perf_file);
+    }
+
+    print_divider("Simulation Complete");
+
+    destroy_clk(0);
+    return 0;
+}
+
 
 void log_process_event(const char *state, PCB *process, int finish_time) {
     FILE *log_file = fopen("scheduler.log", "a");
@@ -116,15 +276,35 @@ void handle_process_arrival(PCB *process) {
     process_count++;
     process->remaining_time = process->execution_time;
 
-    log_message(LOG_PROCESS, "Received Process %d (Runtime: %d, Priority: %d)",
-                process->id_from_file, process->execution_time, process->priority);
+    log_message(LOG_PROCESS, "Received Process %d (Runtime: %d, Priority: %d, SemID: %d)",
+                process->id_from_file, process->execution_time, process->priority, process->sync_semid);
+    
+    if (process->sync_semid <= 0) {
+        log_message(LOG_ERROR, "Process %d has invalid semaphore ID %d",
+                    process->id_from_file, process->sync_semid);
+    }
 
     process->state = READY;
     process->start_time = -1;
     process->last_prempt_time = -1;
 
     if (algorithm == RR) {
+        // For RR, store the semaphore ID before enqueuing
+        int sem_id_backup = process->sync_semid;
         queue_enqueue(&rr_queue, *process);
+        
+        // Verify the semaphore ID in the queue
+        for (int i = 0; i < rr_queue.size; i++) {
+            size_t idx = (rr_queue.front + i) % rr_queue.capacity;
+            if (rr_queue.data[idx].id_from_file == process->id_from_file) {
+                if (rr_queue.data[idx].sync_semid <= 0) {
+                    log_message(LOG_ERROR, "Process %d lost semaphore ID in queue, restoring to %d",
+                                process->id_from_file, sem_id_backup);
+                    rr_queue.data[idx].sync_semid = sem_id_backup;
+                }
+                break;
+            }
+        }
     } else {
         PCB *heap_process = (PCB *) malloc(sizeof(PCB));
         *heap_process = *process;
@@ -158,23 +338,14 @@ void receive_new_process(int msgq_id) {
         if (algorithm == SRTN && current_process != NULL) {
             run_SRTN_Algorithm();
         }
+        if(current_process == NULL){
+            clockValue = -1;
+        }
     }
 }
 
 void run_algorithm(int algorithm) {
-    int sem_val = semctl(semid, 0, GETVAL);
-    if (sem_val <= 0) {
-        // Semaphore is unavailable (0), process generator is sending processes
-        // Don't run algorithm, just return
-        return;
-    }
-
-    // Try to down the semaphore (non-blocking)
-    int result = down_nb(semid);
-    if (result < 0) {
-        // Failed to acquire semaphore
-        return;
-    }
+   
 
     if (algorithm == HPF)
         run_HPF_Algorithm();
@@ -183,11 +354,16 @@ void run_algorithm(int algorithm) {
     else if (algorithm == RR)
         run_RR_Algorithm();
 
-    up(semid);
 }
 
 void start_process(PCB *process) {
     if (process == NULL) return;
+    
+    if (process->sync_semid <= 0) {
+        log_message(LOG_ERROR, "Cannot start process %d with invalid semaphore ID %d",
+                    process->id_from_file, process->sync_semid);
+        return;
+    }
 
     process->state = RUNNING;
     process->start_time = clockValue;
@@ -204,6 +380,12 @@ void start_process(PCB *process) {
         log_process_state(process, "STARTED");
         log_process_event("started", process, -1);
     }
+
+    int sem_val = semctl(process->sync_semid, 0, GETVAL);
+    log_message(LOG_SYSTEM, "Starting process %d with semaphore %d (value: %d)",
+                process->id_from_file, process->sync_semid, sem_val);
+    
+    // up(process->sync_semid);
     time_slice_start = clockValue;
 }
 
@@ -221,6 +403,8 @@ void resume_process(PCB *process) {
         log_process_state(process, "RESUMED");
         log_process_event("resumed", process, -1);
     }
+    // printf("Semaphore %d",process->sync_semid);
+    // up(process->sync_semid);
     time_slice_start = clockValue;
 }
 
@@ -267,8 +451,29 @@ void context_switching() {
 
     if (algorithm == RR) {
         if (rr_queue.size > 0) {
+            PCB front_pcb = queue_front(&rr_queue);
+            if (front_pcb.sync_semid <= 0) {
+                log_message(LOG_ERROR, "Process %d has invalid semaphore ID %d before dequeue",
+                            front_pcb.id_from_file, front_pcb.sync_semid);
+                // Try to recover by searching for a valid process
+                for (int i = 0; i < rr_queue.size; i++) {
+                    size_t idx = (rr_queue.front + i) % rr_queue.capacity;
+                    if (rr_queue.data[idx].sync_semid > 0) {
+                        log_message(LOG_SYSTEM, "Found process with valid semaphore ID %d, swapping",
+                                    rr_queue.data[idx].sync_semid);
+                        PCB temp = rr_queue.data[rr_queue.front];
+                        rr_queue.data[rr_queue.front] = rr_queue.data[idx];
+                        rr_queue.data[idx] = temp;
+                        break;
+                    }
+                }
+                front_pcb = queue_front(&rr_queue);
+            }
+            
             new_process = (PCB *) malloc(sizeof(PCB));
-            *new_process = queue_front(&rr_queue);
+            *new_process = front_pcb;
+            log_message(LOG_SYSTEM, "Dequeued process %d with semaphore ID %d",
+                        new_process->id_from_file, new_process->sync_semid);
             queue_dequeue(&rr_queue);
         }
     } else {
@@ -280,6 +485,15 @@ void context_switching() {
     current_process = new_process;
 
     if (current_process != NULL) {
+        if (current_process->sync_semid <= 0) {
+            log_message(LOG_ERROR, "Current process %d has invalid semaphore ID %d",
+                        current_process->id_from_file, current_process->sync_semid);
+            // Skip this process
+            free(current_process);
+            current_process = NULL;
+            return;
+        }
+        
         if (current_process->start_time == -1) {
             start_process(current_process);
         } else {
@@ -291,6 +505,7 @@ void context_switching() {
 }
 
 void handle_process_completion(int signum) {
+    clockValue = get_clk();
     if (!current_process) {
         log_message(LOG_ERROR, "Received SIGUSR2 but no current process");
         return;
@@ -325,6 +540,7 @@ void handle_process_completion(int signum) {
     printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
     print_progress_bar(finished_processes, process_count, 20);
 
+    semctl(terminated_process->sync_semid, 0, IPC_RMID);
     free(current_process);
     current_process = NULL;
 
@@ -333,113 +549,3 @@ void handle_process_completion(int signum) {
     }
 }
 
-int main(int argc, char *argv[]) {
-    FILE *log_file = fopen("scheduler.log", "w");
-    if (log_file) {
-        fclose(log_file);
-    }
-
-    signal(SIGUSR2, handle_process_completion);
-    signal(SIGUSR1, handle_generator_completion);
-
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <algorithm> [quantum] <semaphore_id>\n", argv[0]);
-        exit(1);
-    }
-
-    algorithm = atoi(argv[1]);
-    const char *algorithm_name = "";
-
-    if (algorithm == SRTN) {
-        algorithm_name = "Shortest Remaining Time Next";
-        ready_Heap = create_min_heap(compare_remaining_time);
-    } else if (algorithm == HPF) {
-        algorithm_name = "Highest Priority First";
-        ready_Heap = create_min_heap(compare_priority);
-    } else if (algorithm == RR) {
-        algorithm_name = "Round Robin";
-        if (argc < 4) {
-            log_message(LOG_ERROR, "RR algorithm requires quantum value and semaphore ID");
-            exit(1);
-        }
-        quantum = atoi(argv[3]);
-
-        queue_init(&rr_queue, 100);
-    } else {
-        if (argc < 3) {
-            log_message(LOG_ERROR, "Missing semaphore ID argument");
-            exit(1);
-        }
-    }
-
-    semid = atoi(argv[2]);
-
-    print_divider("Scheduler Started");
-    log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
-    if (algorithm == RR) {
-        log_message(LOG_SYSTEM, "Quantum: %d", quantum);
-    }
-
-    sync_clk();
-
-    int msgq_id = handle_message_queue('A', IPC_CREAT | 0666, 1);
-
-    while (1) {
-        clockValue = get_clk();
-        receive_new_process(msgq_id);
-
-        run_algorithm(algorithm);
-
-        if (generator_finished &&
-            (algorithm == RR ? rr_queue.size == 0 : ready_Heap->size == 0) &&
-            current_process == NULL)
-        {
-            break;
-        }
-    }
-
-    print_divider("Scheduler Statistics");
-
-    int total_time = clockValue - start_time;
-    float cpu_util = total_time > 0 ? ((float) active_cpu_time / total_time) * 100 : 0;
-
-    float avg_ta = 0, avg_wta = 0, avg_wait = 0, std_wta = 0;
-
-    for (int i = 0; i < finished_processes; i++) {
-        avg_ta += turnaround_times[i];
-        avg_wta += wta_list[i];
-        avg_wait += wait_times[i];
-    }
-
-    if (finished_processes > 0) {
-        avg_ta /= finished_processes;
-        avg_wta /= finished_processes;
-        avg_wait /= finished_processes;
-
-        for (int i = 0; i < finished_processes; i++) {
-            std_wta += pow(wta_list[i] - avg_wta, 2);
-        }
-        std_wta = sqrt(std_wta / finished_processes);
-    }
-
-    log_message(LOG_STAT, "Total processes: %d", process_count);
-    log_message(LOG_STAT, "CPU utilization: %.2f%%", cpu_util);
-    log_message(LOG_STAT, "Avg turnaround time: %.2f", avg_ta);
-    log_message(LOG_STAT, "Avg weighted turnaround time: %.2f", avg_wta);
-    log_message(LOG_STAT, "Std weighted turnaround time: %.2f", std_wta);
-    log_message(LOG_STAT, "Avg waiting time: %.2f", avg_wait);
-
-    FILE *perf_file = fopen("scheduler.perf", "w");
-    if (perf_file) {
-        fprintf(perf_file, "CPU utilization = %.2f%%\n", cpu_util);
-        fprintf(perf_file, "Avg WTA = %.2f\n", avg_wta);
-        fprintf(perf_file, "Avg Waiting = %.2f\n", avg_wait);
-        fprintf(perf_file, "Std WTA = %.2f\n", std_wta);
-        fclose(perf_file);
-    }
-
-    print_divider("Simulation Complete");
-
-    destroy_clk(0);
-    return 0;
-}

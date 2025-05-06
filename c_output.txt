@@ -1,0 +1,1902 @@
+--- File: src/pcb.c ---
+#include "headers.h"
+#include "pcb.h"
+Node *ready_Queue = NULL;
+int process_Count = 0;
+const char* ProcessStateNames[] = {
+    "READY",
+    "RUNNING",
+    "STOPPED",
+    "TERMINATED"
+};
+--- File: src/DS/minHeap.c ---
+#include "minHeap.h"
+#include "../pcb.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+MinHeap *ready_Heap = NULL;
+
+// Helper functions for heap indices
+static int parent(int i) { return (i - 1) / 2; }
+static int left_child(int i) { return 2 * i + 1; }
+static int right_child(int i) { return 2 * i + 2; }
+
+// Swap two PCB pointers
+static void swap(PCB **a, PCB **b)
+{
+    PCB *temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// Heapify down to maintain heap property
+void heapify_down(int i)
+{
+    int smallest = i;
+    int left = left_child(i);
+    int right = right_child(i);
+
+    if (left < ready_Heap->size && ready_Heap->cmp(ready_Heap->processes[left], ready_Heap->processes[smallest]) < 0)
+    {
+        smallest = left;
+    }
+    if (right < ready_Heap->size && ready_Heap->cmp(ready_Heap->processes[right], ready_Heap->processes[smallest]) < 0)
+    {
+        smallest = right;
+    }
+
+    if (smallest != i)
+    {
+        swap(&ready_Heap->processes[i], &ready_Heap->processes[smallest]);
+        heapify_down(smallest);
+    }
+}
+
+// Heapify up to maintain heap property
+void heapify_up(int i)
+{
+    while (i > 0 && ready_Heap->cmp(ready_Heap->processes[i], ready_Heap->processes[parent(i)]) < 0)
+    {
+        swap(&ready_Heap->processes[i], &ready_Heap->processes[parent(i)]);
+        i = parent(i);
+    }
+}
+
+// Create a new min-heap with a specific comparator
+MinHeap *create_min_heap(Comparator cmp)
+{
+    MinHeap *heap = (MinHeap *)malloc(sizeof(MinHeap));
+    if (!heap)
+    {
+        printf("Error: Memory allocation failed for MinHeap\n");
+        exit(1);
+    }
+    heap->capacity = MAX_PROCESSES;
+    heap->size = 0;
+    heap->processes = (PCB **)malloc(heap->capacity * sizeof(PCB *));
+    if (!heap->processes)
+    {
+        printf("Error: Memory allocation failed for processes processes\n");
+        free(heap);
+        exit(1);
+    }
+    heap->cmp = cmp;
+    return heap;
+}
+
+// Destroy the min-heap
+void destroy_min_heap()
+{
+    if (ready_Heap)
+    {
+        // Free all PCB objects stored in the heap
+        for (int i = 0; i < ready_Heap->size; i++) {
+            if (ready_Heap->processes[i]) {
+                // remaining_time is an integer, not a pointer, so don't free it
+                free(ready_Heap->processes[i]);
+            }
+        }
+        free(ready_Heap->processes);
+        free(ready_Heap);
+    }
+}
+
+// Insert a process into the heap
+void insert_process_min_heap(PCB *process)
+{
+    if (ready_Heap->size >= ready_Heap->capacity)
+    {
+        printf("Error: Heap is full\n");
+        return;
+    }
+
+    // Store the pointer directly
+    ready_Heap->processes[ready_Heap->size] = process;
+    int index = ready_Heap->size;
+    ready_Heap->size++;
+    heapify_up(index);
+    // printf("Inserted process with pid=%d \n", process->pid);
+}
+
+// Extract the minimum element from the heap
+PCB *extract_min() {
+    if (ready_Heap->size == 0) {
+        return NULL;
+    }
+
+    PCB *min = ready_Heap->processes[0];
+
+    // Move the last element to the root
+    ready_Heap->processes[0] = ready_Heap->processes[ready_Heap->size - 1];
+    ready_Heap->size--;
+
+    if (ready_Heap->size > 0) {
+        heapify_down(0);
+    }
+
+    // printf("Extracted process with pid=%d \n", min->pid);
+    return min;
+}
+
+// Update remaining_time for a process identified by pid
+void update_process_in_heap(pid_t pid)
+{
+    for (int i = 0; i < ready_Heap->size; i++)
+    {
+        if (ready_Heap->processes[i]->pid == pid)
+        {
+            // The value has already been updated in the PCB
+            // Just fix the heap ordering
+            heapify_up(i);
+            heapify_down(i);
+            break;
+        }
+    }
+}
+
+// Find a process in the heap by its pid
+PCB* find_process_in_heap(pid_t pid)
+{
+    for (int i = 0; i < ready_Heap->size; i++)
+    {
+        if (ready_Heap->processes[i]->pid == pid)
+        {
+            return ready_Heap->processes[i];
+        }
+    }
+    return NULL;
+}
+
+// Print the heap (for debugging)
+void print_minheap()
+{
+    printf("Min-Heap (Ready Queue), Size: %d\n", ready_Heap->size);
+    for (int i = 0; i < ready_Heap->size; i++)
+    {
+        printf("Process %d: Arrival=%d, Remaining=%d, PID=%d, State=%d, Priority=%d,sh_id=%d\n",
+               ready_Heap->processes[i]->id_from_file,
+               ready_Heap->processes[i]->arrival_time,
+               ready_Heap->processes[i]->remaining_time, // Using directly as an integer
+               ready_Heap->processes[i]->pid,
+               ready_Heap->processes[i]->state,
+               ready_Heap->processes[i]->priority,
+               ready_Heap->processes[i]->shm_id
+            );
+
+    }
+}
+--- File: src/DS/priorityQueue.c ---
+#include "priorityQueue.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+void pq_init(PriorityQueue* pq, size_t capacity, SortMode mode) {
+    pq->data = (Process*)malloc(capacity * sizeof(Process));
+    pq->size = 0;
+    pq->capacity = capacity;
+    pq->sort_mode = mode; 
+}
+
+void pq_free(PriorityQueue* pq) {
+    free(pq->data);
+    pq->data = NULL;
+    pq->size = 0;
+    pq->capacity = 0;
+}
+
+int pq_empty(PriorityQueue* pq) {
+    return pq->size == 0;
+}
+
+void pq_resize(PriorityQueue* pq, size_t new_capacity) {
+    Process* new_data = (Process*)malloc(new_capacity * sizeof(Process));
+    memcpy(new_data, pq->data, pq->size * sizeof(Process));
+    free(pq->data);
+    pq->data = new_data;
+    pq->capacity = new_capacity;
+}
+
+int compare_processes(Process* a, Process* b, SortMode mode) {
+    if (mode == SORT_BY_ARRIVAL_TIME) {
+        return a->arrival_time - b->arrival_time;
+    } else {
+        if (a->arrival_time != b->arrival_time)
+            return a->arrival_time - b->arrival_time;
+        else
+            return a->priority - b->priority;
+    }
+}
+
+void pq_push(PriorityQueue* pq, Process value) {
+    if (pq->size >= pq->capacity) {
+        pq_resize(pq, pq->capacity * 2);
+    }
+    
+    size_t i = pq->size++;
+    while (i > 0) {
+        size_t parent = (i - 1) / 2;
+        
+        if (compare_processes(&pq->data[parent], &value, pq->sort_mode) <= 0)
+            break;
+            
+        pq->data[i] = pq->data[parent];
+        i = parent;
+    }
+    pq->data[i] = value;
+}
+
+Process pq_top(PriorityQueue* pq) {
+    return pq->data[0];
+}
+
+void pq_pop(PriorityQueue* pq) {
+    pq->data[0] = pq->data[--pq->size];
+    
+    size_t i = 0;
+    while (1) {
+        size_t smallest = i;
+        size_t left = 2 * i + 1;
+        size_t right = 2 * i + 2;
+        
+        if (left < pq->size && 
+            compare_processes(&pq->data[left], &pq->data[smallest], pq->sort_mode) < 0)
+            smallest = left;
+            
+        if (right < pq->size && 
+            compare_processes(&pq->data[right], &pq->data[smallest], pq->sort_mode) < 0)
+            smallest = right;
+            
+        if (smallest == i)
+            break;
+            
+        Process temp = pq->data[i];
+        pq->data[i] = pq->data[smallest];
+        pq->data[smallest] = temp;
+        
+        i = smallest;
+    }
+}
+
+void pq_print(PriorityQueue* pq) {
+    printf("Queue contents (size: %zu):\n", pq->size);
+    for (size_t i = 0; i < pq->size; i++) {
+        printf("Process ID: %d, Arrival Time: %d, Run Time: %d, Priority: %d\n",
+               pq->data[i].id, pq->data[i].arrival_time, pq->data[i].execution_time, pq->data[i].priority);
+    }
+    printf("Sort mode: %s\n", 
+           pq->sort_mode == SORT_BY_ARRIVAL_TIME ? "Arrival Time Only" : "Arrival Time + Priority");
+}
+--- File: src/DS/comparators.c ---
+#include "../pcb.h"
+#include "../headers.h"
+// Compare by Remaining Time (for SRTN)
+int compare_remaining_time(PCB *a, PCB *b)
+{
+    // Lower remaining time = higher priority
+    // Direct comparison since remaining_time is an integer, not a pointer
+    return a->remaining_time - b->remaining_time;
+}
+
+// Compare by Priority (lower value = higher priority)
+int compare_priority(PCB *a, PCB *b) {
+    // Lower priority value -> higher actual priority
+    return a->priority - b->priority;
+}
+
+// Compare by Arrival Time (for FCFS)
+int compare_arrival_time(PCB *a, PCB *b) {
+    return a->arrival_time - b->arrival_time;
+}
+--- File: src/DS/Queue.c ---
+#include "Queue.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+void queue_init(PCBQueue *q, size_t capacity)
+{
+    q->data = (PCB *)malloc(capacity * sizeof(PCB));
+    q->front = 0;
+    q->rear = 0;
+    q->size = 0;
+    q->capacity = capacity;
+}
+
+void queue_free(PCBQueue *q)
+{
+    free(q->data);
+    q->data = NULL;
+    q->front = 0;
+    q->rear = 0;
+    q->size = 0;
+    q->capacity = 0;
+}
+
+int queue_empty(PCBQueue *q)
+{
+    return q->size == 0;
+}
+
+int queue_full(PCBQueue *q)
+{
+    return q->size == q->capacity;
+}
+
+void queue_resize(PCBQueue *q, size_t new_capacity)
+{
+    PCB *new_data = (PCB *)malloc(new_capacity * sizeof(PCB));
+
+    for (size_t i = 0; i < q->size; i++)
+    {
+        new_data[i] = q->data[(q->front + i) % q->capacity];
+    }
+
+    free(q->data);
+    q->data = new_data;
+    q->front = 0;
+    q->rear = q->size;
+    q->capacity = new_capacity;
+}
+
+void queue_enqueue(PCBQueue *q, PCB value)
+{
+    if (queue_full(q))
+    {
+        queue_resize(q, q->capacity * 2);
+    }
+
+    q->data[q->rear] = value;
+    q->rear = (q->rear + 1) % q->capacity;
+    q->size++;
+    // queue_print(q); // Print the queue after enqueueing
+}
+
+PCB queue_front(PCBQueue *q)
+{
+    if (queue_empty(q))
+    {
+        PCB empty = {0}; // Initialize all fields to 0
+        empty.pid = -1;  // Set an indicator value
+        printf("Error: Attempt to access front of empty queue\n");
+        return empty;
+    }
+    return q->data[q->front];
+}
+
+void queue_dequeue(PCBQueue *q)
+{
+    if (queue_empty(q))
+    {
+        printf("Error: Attempt to dequeue from empty queue\n");
+        return;
+    }
+
+    q->front = (q->front + 1) % q->capacity;
+    q->size--;
+}
+
+void queue_print(PCBQueue *q)
+{
+    printf("Queue contents (size: %zu):\n", q->size);
+    for (size_t i = 0; i < q->size; i++)
+    {
+        size_t index = (q->front + i) % q->capacity;
+        printf("Process ID: %d, PID: %d, Arrival: %d, Runtime: %d, Remaining: %d, Priority: %d\n",
+               q->data[index].id_from_file, q->data[index].pid, q->data[index].arrival_time,
+               q->data[index].execution_time, 
+               // Simply use the remaining_time as is, since it's an integer, not a pointer
+               q->data[index].remaining_time,
+               q->data[index].priority);
+    }
+}
+
+--- File: src/semaphores.c ---
+#include <sys/types.h> 
+#include <sys/ipc.h>   
+#include <sys/sem.h>   
+#include <stdio.h>     
+#include <stdlib.h>    
+#include <unistd.h>    
+#include <errno.h>     
+#include <string.h>    
+
+#include "semaphores.h" // Include own header
+
+
+void down(int semid) {
+    struct sembuf op = {0, -1, 0}; 
+    if (semop(semid, &op, 1) == -1) { 
+        perror("down failed");
+        exit(1);
+    }
+}
+
+void up(int semid) {
+    struct sembuf op = {0, 1, 0}; 
+    if (semop(semid, &op, 1) == -1) {
+        perror("up failed");
+        exit(1);
+    }
+}
+
+
+int down_nb(int semid) {
+    struct sembuf op;
+    op.sem_num = 0;      
+    op.sem_op = -1;      
+    op.sem_flg = IPC_NOWAIT; 
+    
+    int result = semop(semid, &op, 1);
+    if (result == -1) {
+        if (errno == EAGAIN) {
+            return -1;
+        } else {
+            fprintf(stderr, "down_nb error: %s (errno=%d, semid=%d)\n", 
+                    strerror(errno), errno, semid);
+            return -2;
+        }
+    }
+    return 0;
+}
+
+
+int up_nb(int semid) {
+    struct sembuf op = {0, 1, IPC_NOWAIT}; 
+    int result = semop(semid, &op, 1);
+    if (result == -1) {
+        perror("up_nb failed");
+        return -1;
+    }
+    return 0; 
+}
+
+--- File: src/scheduler.c ---
+#include "scheduler.h"
+#include "headers.h"
+#include <signal.h>
+#include <sys/shm.h>
+
+#include <math.h>
+#include <tgmath.h>
+
+SchedulingAlgorithm algorithm;
+PCB *current_process = NULL;
+PCBQueue rr_queue;
+int process_count = 0;
+int finished_processes = 0;
+int start_time = -1; // Start time of the scheduler with the first process
+int quantum = 0;
+int generator_finished = 0; // Flag to indicate if the process generator has finished sending processes
+int active_cpu_time = 0; // Time the CPU is actively running processes
+
+int turnaround_times[100];
+float wta_list[100];
+int wait_times[100];
+int time_slice_start = -1; // used for detect the quantum time
+
+int semid; // Semaphore ID to sync with process generator
+int clockValue;
+
+void log_process_event(const char *state, PCB *process, int finish_time) {
+    FILE *log_file = fopen("scheduler.log", "a");
+    if (!log_file) {
+        perror("Failed to open scheduler.log");
+        return;
+    }
+
+    int clk = clockValue;
+    fprintf(log_file, "At time %d process %d %s arr %d total %d remain %d wait %d",
+            clk, process->id_from_file, state, process->arrival_time,
+            process->execution_time, process->remaining_time, process->waiting_time);
+
+    if (strcmp(state, "finished") == 0) {
+        int ta = finish_time - process->arrival_time;
+        float wta = roundf(((float) ta / process->execution_time) * 100) / 100;
+        fprintf(log_file, " TA %d WTA %.2f", ta, wta);
+    }
+
+    fprintf(log_file, "\n");
+    fclose(log_file);
+}
+
+PCB *find_process_by_pid(pid_t pid) {
+    if (algorithm == RR) {
+        for (int i = 0; i < rr_queue.size; i++) {
+            size_t idx = (rr_queue.front + i) % rr_queue.capacity;
+            if (rr_queue.data[idx].pid == pid) {
+                return &rr_queue.data[idx];
+            }
+        }
+    } else {
+        for (int i = 0; i < ready_Heap->size; i++) {
+            if (ready_Heap->processes[i]->pid == pid) {
+                return ready_Heap->processes[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+void handle_generator_completion(int signum) {
+    log_message(LOG_SYSTEM, "All processes received from generator");
+    generator_finished = 1;
+}
+
+void update_process_remaining_time(PCB *process) {
+    if (process && process->shm_id != -1) {
+        int *shm_remaining_time = (int *) shmat(process->shm_id, NULL, 0);
+        if (shm_remaining_time != (int *) -1) {
+            process->remaining_time = *shm_remaining_time;
+            shmdt(shm_remaining_time);
+        }
+    }
+}
+
+void run_RR_Algorithm() {
+    if (current_process == NULL && rr_queue.size > 0) {
+        context_switching();
+    }
+
+    if (current_process != NULL) {
+        update_process_remaining_time(current_process);
+        if (clockValue - time_slice_start >= quantum && rr_queue.size > 0) {
+            context_switching();
+        }
+    }
+}
+
+void run_SRTN_Algorithm() {
+    if (current_process) {
+        update_process_remaining_time(current_process);
+    }
+
+    if (ready_Heap->size > 0) {
+        PCB *shortest = ready_Heap->processes[0];
+        if (current_process == NULL ||
+            (current_process->remaining_time > shortest->remaining_time)) {
+            context_switching();
+        }
+    }
+}
+
+void run_HPF_Algorithm() {
+    if (current_process == NULL && ready_Heap->size > 0) {
+        context_switching();
+    }
+}
+
+void handle_process_arrival(PCB *process) {
+    process_count++;
+    process->remaining_time = process->execution_time;
+
+    log_message(LOG_PROCESS, "Received Process %d (Runtime: %d, Priority: %d)",
+                process->id_from_file, process->execution_time, process->priority);
+
+    process->state = READY;
+    process->start_time = -1;
+    process->last_prempt_time = -1;
+
+    if (algorithm == RR) {
+        queue_enqueue(&rr_queue, *process);
+    } else {
+        PCB *heap_process = (PCB *) malloc(sizeof(PCB));
+        *heap_process = *process;
+        insert_process_min_heap(heap_process);
+    }
+}
+
+int handle_message_queue(char key_char, int flags, int exit_on_error) {
+    int msgq_id;
+    key_t key;
+
+    key = ftok("keyfile", key_char);
+    msgq_id = msgget(key, flags);
+
+    if (msgq_id == -1) {
+        perror("Error handling message queue");
+        if (exit_on_error) {
+            exit(EXIT_FAILURE);
+        }
+    }
+    return msgq_id;
+}
+
+void receive_new_process(int msgq_id) {
+    if (msgq_id == -1)
+        return;
+
+    MsgBuffer message;
+    while (msgrcv(msgq_id, (void *) &message, sizeof(message.pcb), 1, IPC_NOWAIT) != -1) {
+        handle_process_arrival(&message.pcb);
+        if (algorithm == SRTN && current_process != NULL) {
+            run_SRTN_Algorithm();
+        }
+    }
+}
+
+void run_algorithm(int algorithm) {
+    int sem_val = semctl(semid, 0, GETVAL);
+    if (sem_val <= 0) {
+        // Semaphore is unavailable (0), process generator is sending processes
+        // Don't run algorithm, just return
+        return;
+    }
+
+    // Try to down the semaphore (non-blocking)
+    int result = down_nb(semid);
+    if (result < 0) {
+        // Failed to acquire semaphore
+        return;
+    }
+
+    if (algorithm == HPF)
+        run_HPF_Algorithm();
+    else if (algorithm == SRTN)
+        run_SRTN_Algorithm();
+    else if (algorithm == RR)
+        run_RR_Algorithm();
+
+    up(semid);
+}
+
+void start_process(PCB *process) {
+    if (process == NULL) return;
+
+    process->state = RUNNING;
+    process->start_time = clockValue;
+    if (start_time == -1)
+        start_time = process->start_time;
+
+    active_cpu_time += process->execution_time;
+
+    process->waiting_time = clockValue - process->arrival_time;
+
+    if (kill(process->pid, SIGCONT) < 0) {
+        log_message(LOG_ERROR, "Failed to start process %d", process->pid);
+    } else {
+        log_process_state(process, "STARTED");
+        log_process_event("started", process, -1);
+    }
+    time_slice_start = clockValue;
+}
+
+void resume_process(PCB *process) {
+    if (process == NULL) return;
+
+    process->state = RUNNING;
+    if (process->last_prempt_time != -1) {
+        process->waiting_time += clockValue - process->last_prempt_time;
+    }
+
+    if (kill(process->pid, SIGCONT) < 0) {
+        log_message(LOG_ERROR, "Failed to resume process %d", process->pid);
+    } else {
+        log_process_state(process, "RESUMED");
+        log_process_event("resumed", process, -1);
+    }
+    time_slice_start = clockValue;
+}
+
+void preempt_process(PCB *process) {
+    if (process == NULL) return;
+
+    update_process_remaining_time(process);
+    process->state = READY;
+    process->last_prempt_time = clockValue;
+
+    if (kill(process->pid, SIGSTOP) < 0) {
+        log_message(LOG_ERROR, "Failed to preempt process %d", process->pid);
+    } else {
+        log_process_state(process, "PREEMPTED");
+        log_process_event("stopped", process, -1);
+
+        // Print progress bar for the preempted process
+        printf("%sProcess %d Progress (Preempted):%s\n", COLOR_GREEN, process->pid, COLOR_RESET);
+        print_progress_bar(process->execution_time - process->remaining_time,
+                           process->execution_time, 20);
+    }
+}
+
+void context_switching() {
+    PCB *new_process = NULL;
+
+    if (current_process != NULL) {
+        update_process_remaining_time(current_process);
+        if (current_process->remaining_time == 0) {
+            return;
+        }
+
+        if (current_process->state != TERMINATED) {
+            preempt_process(current_process);
+            if (algorithm == RR) {
+                queue_enqueue(&rr_queue, *current_process);
+            } else {
+                insert_process_min_heap(current_process);
+            }
+        }
+    }
+
+    log_message(LOG_SYSTEM, "Performing context switch at time %d", clockValue);
+
+    if (algorithm == RR) {
+        if (rr_queue.size > 0) {
+            new_process = (PCB *) malloc(sizeof(PCB));
+            *new_process = queue_front(&rr_queue);
+            queue_dequeue(&rr_queue);
+        }
+    } else {
+        if (ready_Heap->size > 0) {
+            new_process = extract_min();
+        }
+    }
+
+    current_process = new_process;
+
+    if (current_process != NULL) {
+        if (current_process->start_time == -1) {
+            start_process(current_process);
+        } else {
+            resume_process(current_process);
+        }
+    } else {
+        log_message(LOG_SYSTEM, "No process to schedule, CPU idle");
+    }
+}
+
+void handle_process_completion(int signum) {
+    if (!current_process) {
+        log_message(LOG_ERROR, "Received SIGUSR2 but no current process");
+        return;
+    }
+
+    PCB *terminated_process = current_process;
+    update_process_remaining_time(terminated_process);
+
+    if (terminated_process->shm_id != -1) {
+        shmctl(terminated_process->shm_id, IPC_RMID, NULL);
+        terminated_process->shm_id = -1;
+    }
+
+    terminated_process->state = TERMINATED;
+
+    int finish_time = clockValue;
+    int ta = finish_time - terminated_process->arrival_time;
+    float wta = roundf(((float) ta / terminated_process->execution_time) * 100) / 100;
+    int wait = ta - terminated_process->execution_time;
+
+    turnaround_times[finished_processes] = ta;
+    wta_list[finished_processes] = wta;
+    wait_times[finished_processes] = wait;
+
+    log_process_state(terminated_process, "FINISHED");
+    log_message(LOG_STAT, "Turnaround: %d, Weighted TA: %.2f, Wait: %d",
+                ta, wta, wait);
+
+    log_process_event("finished", terminated_process, finish_time);
+
+    finished_processes++;
+    printf("%sOverall Process Completion:%s\n", COLOR_GREEN, COLOR_RESET);
+    print_progress_bar(finished_processes, process_count, 20);
+
+    free(current_process);
+    current_process = NULL;
+
+    if (generator_finished && algorithm == SRTN) {
+        context_switching();
+    }
+}
+
+int main(int argc, char *argv[]) {
+    FILE *log_file = fopen("scheduler.log", "w");
+    if (log_file) {
+        fclose(log_file);
+    }
+
+    signal(SIGUSR2, handle_process_completion);
+    signal(SIGUSR1, handle_generator_completion);
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <algorithm> [quantum] <semaphore_id>\n", argv[0]);
+        exit(1);
+    }
+
+    algorithm = atoi(argv[1]);
+    const char *algorithm_name = "";
+
+    if (algorithm == SRTN) {
+        algorithm_name = "Shortest Remaining Time Next";
+        ready_Heap = create_min_heap(compare_remaining_time);
+    } else if (algorithm == HPF) {
+        algorithm_name = "Highest Priority First";
+        ready_Heap = create_min_heap(compare_priority);
+    } else if (algorithm == RR) {
+        algorithm_name = "Round Robin";
+        if (argc < 4) {
+            log_message(LOG_ERROR, "RR algorithm requires quantum value and semaphore ID");
+            exit(1);
+        }
+        quantum = atoi(argv[3]);
+
+        queue_init(&rr_queue, 100);
+    } else {
+        if (argc < 3) {
+            log_message(LOG_ERROR, "Missing semaphore ID argument");
+            exit(1);
+        }
+    }
+
+    semid = atoi(argv[2]);
+
+    print_divider("Scheduler Started");
+    log_message(LOG_SYSTEM, "Algorithm: %s", algorithm_name);
+    if (algorithm == RR) {
+        log_message(LOG_SYSTEM, "Quantum: %d", quantum);
+    }
+
+    sync_clk();
+
+    int msgq_id = handle_message_queue('A', IPC_CREAT | 0666, 1);
+
+    while (1) {
+        clockValue = get_clk();
+        receive_new_process(msgq_id);
+
+        run_algorithm(algorithm);
+
+        if (generator_finished &&
+            (algorithm == RR ? rr_queue.size == 0 : ready_Heap->size == 0) &&
+            current_process == NULL)
+        {
+            break;
+        }
+    }
+
+    print_divider("Scheduler Statistics");
+
+    int total_time = clockValue - start_time;
+    float cpu_util = total_time > 0 ? ((float) active_cpu_time / total_time) * 100 : 0;
+
+    float avg_ta = 0, avg_wta = 0, avg_wait = 0, std_wta = 0;
+
+    for (int i = 0; i < finished_processes; i++) {
+        avg_ta += turnaround_times[i];
+        avg_wta += wta_list[i];
+        avg_wait += wait_times[i];
+    }
+
+    if (finished_processes > 0) {
+        avg_ta /= finished_processes;
+        avg_wta /= finished_processes;
+        avg_wait /= finished_processes;
+
+        for (int i = 0; i < finished_processes; i++) {
+            std_wta += pow(wta_list[i] - avg_wta, 2);
+        }
+        std_wta = sqrt(std_wta / finished_processes);
+    }
+
+    log_message(LOG_STAT, "Total processes: %d", process_count);
+    log_message(LOG_STAT, "CPU utilization: %.2f%%", cpu_util);
+    log_message(LOG_STAT, "Avg turnaround time: %.2f", avg_ta);
+    log_message(LOG_STAT, "Avg weighted turnaround time: %.2f", avg_wta);
+    log_message(LOG_STAT, "Std weighted turnaround time: %.2f", std_wta);
+    log_message(LOG_STAT, "Avg waiting time: %.2f", avg_wait);
+
+    FILE *perf_file = fopen("scheduler.perf", "w");
+    if (perf_file) {
+        fprintf(perf_file, "CPU utilization = %.2f%%\n", cpu_util);
+        fprintf(perf_file, "Avg WTA = %.2f\n", avg_wta);
+        fprintf(perf_file, "Avg Waiting = %.2f\n", avg_wait);
+        fprintf(perf_file, "Std WTA = %.2f\n", std_wta);
+        fclose(perf_file);
+    }
+
+    print_divider("Simulation Complete");
+
+    destroy_clk(0);
+    return 0;
+}
+
+--- File: src/process_generator.c ---
+#include "headers.h"
+
+PriorityQueue pq;
+PCBQueue waiting_queue;
+
+int msgq_id;
+key_t msgq_key;
+pid_t scheduler_pid;
+int semid;
+
+// memory segment
+const int TOTAL_MEMORY_SIZE = 1024;
+MemoryBlock *Memory_Segment = NULL;
+
+
+typedef struct {
+    SchedulingAlgorithm algorithm;
+    int quantum;
+    const char *filename;
+} SchedulingParams;
+
+void clear_resources(int signum);
+
+void read_processes(const char *filename, PriorityQueue *pq);
+
+void initializeIPC();
+
+void handle_children_termination(int signum);
+
+void createProcess(PCB *process);
+
+int parse_args(int argc, char *argv[], SchedulingParams *params) {
+    params->quantum = 0;
+    params->filename = NULL;
+    params->algorithm = HPF;
+
+    if (argc < 5) {
+        fprintf(stderr, "Usage: %s -s <scheduling-algorithm> -f <processes-text-file> [-q <quantum>]\n", argv[0]);
+        return 0;
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "rr") == 0) {
+                params->algorithm = RR;
+            } else if (strcmp(argv[i + 1], "hpf") == 0) {
+                params->algorithm = HPF;
+            } else if (strcmp(argv[i + 1], "srtn") == 0) {
+                params->algorithm = SRTN;
+            } else {
+                fprintf(stderr, "Unknown scheduling algorithm: %s\n", argv[i + 1]);
+                return 0;
+            }
+            i++;
+        } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
+            params->filename = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "-q") == 0 && i + 1 < argc) {
+            params->quantum = atoi(argv[i + 1]);
+            i++;
+        }
+    }
+
+    if (params->filename == NULL) {
+        fprintf(stderr, "Missing process file (-f <filename>)\n");
+        return 0;
+    }
+    if (params->algorithm == RR && params->quantum <= 0) {
+        fprintf(stderr, "Round Robin requires a positive quantum (-q <quantum>)\n");
+        return 0;
+    }
+    return 1;
+}
+
+void serve_waiting_queue(int time) {
+    PCBQueue temp_queue;
+    queue_init(&temp_queue, 100);
+
+    while (!queue_empty(&waiting_queue)) {
+        PCB waiting_pcb = queue_front(&waiting_queue);
+        queue_dequeue(&waiting_queue);
+
+        if (allocate_memory(Memory_Segment, waiting_pcb.id_from_file, waiting_pcb.memory_size, time)) {
+            createProcess(&waiting_pcb);
+            update_id(waiting_pcb.id_from_file, waiting_pcb.pid, Memory_Segment);
+
+            //send process to scheduler
+            MsgBuffer message;
+            message.mtype = 1;
+            message.pcb = waiting_pcb;
+
+            if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
+                perror("Error sending process to scheduler");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            queue_enqueue(&temp_queue, waiting_pcb);
+        }
+    }
+
+    while (!queue_empty(&temp_queue)) {
+        PCB waiting_pcb = queue_front(&temp_queue);
+        queue_dequeue(&temp_queue);
+        queue_enqueue(&waiting_queue, waiting_pcb);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    signal(SIGINT, clear_resources);
+    signal(SIGCHLD, handle_children_termination);
+    // Clear log files at the beginning
+    FILE *mem_log = fopen("memory.log", "w");
+    if (mem_log) {
+        fclose(mem_log);
+    } else {
+        perror("Failed to clear memory.log");
+    }
+
+    SchedulingParams params;
+    if (!parse_args(argc, argv, &params)) {
+        exit(EXIT_FAILURE);
+    }
+
+    print_divider("OS Scheduler Simulation");
+
+    char algorithm_name[50];
+    if (params.algorithm == HPF) {
+        strcpy(algorithm_name, "HPF");
+    } else if (params.algorithm == SRTN) {
+        strcpy(algorithm_name, "SRTN");
+    } else if (params.algorithm == RR) {
+        sprintf(algorithm_name, "Round Robin (q=%d)", params.quantum);
+    } else {
+        strcpy(algorithm_name, "Unknown");
+    }
+
+    log_message(LOG_SYSTEM, "Starting simulation with %s algorithm", algorithm_name);
+    log_message(LOG_INFO, "Loading processes from %s", params.filename);
+
+    int process_count = 0;
+    pq_init(&pq, 20, SORT_BY_ARRIVAL_TIME);
+    queue_init(&waiting_queue, 100);
+    initialize_memory_Segment(&Memory_Segment, TOTAL_MEMORY_SIZE);
+    read_processes(params.filename, &pq);
+    initializeIPC();
+
+    semid = semget(IPC_PRIVATE, 1, IPC_CREAT | 0666);
+    if (semid == -1) {
+        perror("semget failed");
+        exit(1);
+    }
+
+    union semun arg;
+    arg.val = 1;
+    if (semctl(semid, 0, SETVAL, arg) == -1) {
+        perror("semctl failed");
+        exit(1);
+    }
+
+    scheduler_pid = fork();
+    log_message(LOG_INFO, "Scheduler process created PID%d\n", scheduler_pid);
+    if (scheduler_pid == 0) {
+        char algorithm_str[10], semid_str[10];
+        sprintf(algorithm_str, "%d", params.algorithm);
+        sprintf(semid_str, "%d", semid);
+
+        if (params.algorithm == RR) {
+            char quantum_str[10];
+            sprintf(quantum_str, "%d", params.quantum);
+            execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, quantum_str, NULL);
+        } else {
+            execl("./bin/scheduler", "scheduler", algorithm_str, semid_str, NULL);
+        }
+        perror("Error executing scheduler");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t clk_pid = fork();
+    if (clk_pid == 0) {
+        signal(SIGINT, clear_resources);
+        init_clk();
+        sync_clk();
+        run_clk();
+    }
+
+    sync_clk();
+
+    Process p;
+    while (1) {
+        if (pq_empty(&pq) && queue_empty(&waiting_queue)) {
+            log_message(LOG_INFO, "No more processes to schedule");
+            break;
+        }
+        int current_time = get_clk();
+        serve_waiting_queue(current_time);
+        if (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
+            int sem_val = semctl(semid, 0, GETVAL);
+            if (sem_val <= 0) {
+                // Semaphore is unavailable (0), process generator is sending processes
+                // Don't run algorithm, just return
+                continue;
+            }
+
+            // Try to down the semaphore (non-blocking)
+            int result = down_nb(semid);
+            if (result < 0) {
+                // Failed to acquire semaphore
+                continue;
+            }
+
+            serve_waiting_queue(current_time);
+
+            while (!pq_empty(&pq) && pq_top(&pq).arrival_time <= current_time) {
+                p = pq_top(&pq);
+
+                PCB *new_pcb = (PCB *) malloc(sizeof(PCB));
+                new_pcb->id_from_file = p.id;
+                new_pcb->arrival_time = p.arrival_time;
+                new_pcb->execution_time = p.execution_time;
+                new_pcb->priority = p.priority;
+                new_pcb->waiting_time = 0;
+                new_pcb->start_time = -1;
+                new_pcb->remaining_time = p.execution_time;
+                new_pcb->memory_size = p.memory_size;
+
+                if (allocate_memory(Memory_Segment, new_pcb->id_from_file, new_pcb->memory_size,current_time)){
+                    createProcess(new_pcb);
+                    update_id(new_pcb->id_from_file, new_pcb->pid, Memory_Segment);
+                } else {
+                    queue_enqueue(&waiting_queue, *new_pcb);
+                    pq_pop(&pq);
+                    log_message(LOG_PROCESS,
+                                "Process %d arrived at time %d, Runtime: %d, Priority: %d, Can't allocate memory for it and added to waiting queue",
+                                new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
+
+                    continue;
+                }
+
+                pq_pop(&pq);
+
+                log_message(LOG_PROCESS, "Process %d arrived at time %d, Runtime: %d, Priority: %d",
+                            new_pcb->id_from_file, current_time, new_pcb->execution_time, new_pcb->priority);
+
+                MsgBuffer message;
+                message.mtype = 1;
+                message.pcb = *new_pcb;
+
+                if (msgsnd(msgq_id, &message, sizeof(message.pcb), !IPC_NOWAIT) == -1) {
+                    perror("Error sending process to scheduler");
+                    exit(EXIT_FAILURE);
+                }
+
+                process_count++;
+            }
+
+            up(semid);
+        }
+
+        usleep(100000);
+    }
+
+    print_divider("Process Generation Complete");
+    log_message(LOG_SYSTEM, "All %d processes sent to scheduler", process_count);
+    kill(scheduler_pid, SIGUSR1);
+
+    int status;
+    log_message(LOG_SYSTEM, "Waiting for scheduler process %d to terminate", scheduler_pid);
+    waitpid(scheduler_pid, &status, 0);
+    log_message(LOG_SYSTEM, "Scheduler process %d terminated", scheduler_pid);
+
+    clear_resources(0);
+    return 0;
+}
+
+void createProcess(PCB *process) {
+    int shmid;
+    int *shm_remaining_time;
+    pid_t pid;
+
+    shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+    if (shmid == -1) {
+        perror("shmget failed");
+        exit(-1);
+    }
+
+    shm_remaining_time = (int *) shmat(shmid, NULL, 0);
+    if (shm_remaining_time == (int *) -1) {
+        perror("shmat failed");
+        exit(-1);
+    }
+
+    *shm_remaining_time = process->remaining_time;
+    process->shm_id = shmid;
+
+    shmdt(shm_remaining_time);
+
+    pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        exit(-1);
+    }
+
+    if (pid == 0) {
+        char runtime_str[10], shmid_str[20], scheduler_pid_str[20];
+        sprintf(runtime_str, "%d", process->remaining_time);
+        sprintf(shmid_str, "%d", shmid);
+        sprintf(scheduler_pid_str, "%d", scheduler_pid);
+
+        execl("./bin/process.out", "process.out", runtime_str, shmid_str, scheduler_pid_str, NULL);
+        perror("execl failed");
+        exit(1);
+    } else {
+        process->pid = pid;
+        kill(pid, SIGSTOP);
+    }
+}
+
+void initializeIPC() {
+    msgq_key = ftok("keyfile", 'A');
+    if (msgq_key == -1) {
+        perror("Error creating message queue key");
+        exit(EXIT_FAILURE);
+    }
+
+    msgq_id = msgget(msgq_key, IPC_CREAT | 0666);
+    if (msgq_id == -1) {
+        perror("Error creating message queue");
+        exit(EXIT_FAILURE);
+    }
+
+    log_message(LOG_SYSTEM, "Message queue created with ID: %d", msgq_id);
+}
+
+void read_processes(const char *filename, PriorityQueue *pq) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Failed to open processes.txt");
+        exit(EXIT_FAILURE);
+    }
+
+    char line[256];
+    fgets(line, sizeof(line), file);
+
+    while (fgets(line, sizeof(line), file)) {
+        if (line[0] == '#') {
+            continue;
+        }
+
+        Process p;
+        if (sscanf(line, "%d %d %d %d %d", &p.id, &p.arrival_time, &p.execution_time, &p.priority,
+                   &p.memory_size) == 5) {
+            pq_push(pq, p);
+        }
+    }
+
+    fclose(file);
+}
+
+void handle_children_termination(int signum) {
+    int status;
+    pid_t pid;
+
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (WIFEXITED(status)) {
+            printf("Child %d exited with status %d\n", pid, WEXITSTATUS(status));
+            if (pid == scheduler_pid) {
+                log_message(LOG_SYSTEM, "Scheduler terminated");
+                clear_resources(0);
+            }
+            deallocate_memory(Memory_Segment, pid,get_clk());
+        } else if (WIFSIGNALED(status)) {
+            printf("Child %d was killed by signal %d\n", pid, WTERMSIG(status));
+        }
+    }
+    signal(SIGCHLD, handle_children_termination);
+}
+
+void clear_resources(int signum) {
+    (void) signum;
+    pq_free(&pq);
+    msgctl(msgq_id, IPC_RMID, NULL);
+    semctl(semid, 0, IPC_RMID);
+    destroy_clk(1);
+    print_memory(Memory_Segment);
+    destroy_memory_segment(Memory_Segment);   
+    log_message(LOG_SYSTEM, "Cleaned up and exiting");
+    exit(0);
+}
+
+--- File: src/logger.c ---
+#include "headers.h"
+
+// Define the global variable
+LogLevel current_log_level = LOG_INFO;
+
+// Logging function with level and colors
+void log_message(LogLevel level, const char* format, ...) {
+    // Skip logging if level is below current_log_level
+    if (level < current_log_level) return;
+    
+    va_list args;
+    va_start(args, format);
+    
+    // Select color based on log level
+    switch(level) {
+        case LOG_DEBUG:
+            printf("%s[DEBUG]%s ", COLOR_WHITE, COLOR_RESET);
+            break;
+        case LOG_INFO:
+            printf("%s[INFO]%s ", COLOR_BLUE, COLOR_RESET);
+            break;
+        case LOG_PROCESS:
+            printf("%s[PROCESS]%s ", COLOR_GREEN, COLOR_RESET);
+            break;
+        case LOG_SYSTEM:
+            printf("%s[SYSTEM]%s ", COLOR_MAGENTA, COLOR_RESET);
+            break;
+        case LOG_STAT:
+            printf("%s[STATS]%s ", COLOR_CYAN, COLOR_RESET);
+            break;
+        case LOG_ERROR:
+            printf("%s[ERROR]%s ", COLOR_RED, COLOR_RESET);
+            break;
+        case LOG_WARNING:
+            printf("%s[WARNING]%s ", COLOR_YELLOW, COLOR_RESET);
+            break;
+    }
+    
+    // Print the actual message
+    vprintf(format, args);
+    printf("\n");
+    
+    va_end(args);
+    fflush(stdout);
+}
+
+// Helper function for process state changes
+void log_process_state(PCB* process, const char* state) {
+    if (process == NULL) return;
+    
+    log_message(LOG_PROCESS, "Process %d %s%s%s [Priority: %d, Remaining: %d, Wait: %d]",
+               process->id_from_file, 
+               BOLD, state, COLOR_RESET,
+               process->priority,
+               process->remaining_time,
+               process->waiting_time);
+}
+
+// Print a divider line for sections
+void print_divider(const char* title) {
+    printf("\n%s%s====== %s ======%s\n", BOLD, COLOR_YELLOW, title, COLOR_RESET);
+}
+
+// Print a simple progress bar
+void print_progress_bar(int completed, int total, int width) {
+    int filled = (completed * width) / total;
+    printf("[");
+    for (int i = 0; i < width; i++) {
+        if (i < filled) printf("■");
+        else printf("□");
+    }
+    printf("] %d/%d\n", completed, total);
+}
+
+--- File: src/clk.c ---
+/*
+ * This file is done for you.
+ * Probably you will not need to change anything.
+ * This file represents an emulated clock for simulation purpose only.
+ * It is not a real part of operating system!
+ */
+#include <stdlib.h>
+#include <sys/shm.h>
+#include <stdio.h>
+#include <signal.h>
+#include <unistd.h>
+#include "clk.h"
+
+#define SHKEY 300
+///==============================
+// don't mess with this variable//
+int *shmaddr = NULL; //
+//===============================
+
+int shmid;
+
+/* Clear the resources before exit */
+void _cleanup(__attribute__((unused)) int signum)
+{
+    shmctl(shmid, IPC_RMID, NULL);
+    printf("Clock terminating!\n");
+    exit(0);
+}
+
+void init_clk()
+{
+    printf("Clock starting\n");
+    signal(SIGINT, _cleanup);
+    int clk = 0;
+    // Create shared memory for one integer variable 4 bytes
+    shmid = shmget(SHKEY, 4, IPC_CREAT | 0644);
+    if ((long)shmid == -1)
+    {
+        perror("Error in creating shm!");
+        exit(-1);
+    }
+    int *shmaddr = (int *)shmat(shmid, (void *)0, 0);
+    if ((long)shmaddr == -1)
+    {
+        perror("Error in attaching the shm in clock!");
+        exit(-1);
+    }
+    *shmaddr = clk; /* initialize shared memory */
+}
+
+void run_clk()
+{
+    while (1)
+    {
+        sleep(1);
+        (*shmaddr)++;
+    }
+}
+
+int get_clk()
+{
+    return *shmaddr;
+}
+
+void sync_clk()
+{
+    int shmid = shmget(SHKEY, 4, 0444);
+    while ((int)shmid == -1)
+    {
+        // Make sure that the clock exists
+        printf("Wait! The clock not initialized yet!\n");
+        sleep(1);
+        shmid = shmget(SHKEY, 4, 0444);
+    }
+    shmaddr = (int *)shmat(shmid, (void *)0, 0);
+}
+
+void destroy_clk(short terminateAll)
+{
+    shmdt(shmaddr);
+    if (terminateAll)
+    {
+        killpg(getpgrp(), SIGINT);
+    }
+}
+--- File: src/process.c ---
+#include "clk.h"
+#include "headers.h"
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/shm.h>
+
+int runtime = 0;
+int *shared_remaining_time = NULL; 
+int shmid_p = -1;
+pid_t scheduler_pid = -1; 
+int preTime = 0; 
+int currTime = 0; 
+void cleanup()
+{
+    // Detach from shared memory
+    if (shared_remaining_time != NULL)
+    {
+        shmdt(shared_remaining_time);
+    }
+}
+
+void cont_handler(int signum)
+{
+    // Update preTime to current time when process continues
+    preTime = get_clk();
+    log_message(LOG_PROCESS, "Process %d resumed at time %d", getpid(), preTime);
+}
+
+void run_process(int remaining_time, int shared_mem_id)
+{
+    // Setup exit handler to clean up shared memory
+    atexit(cleanup);
+    
+    signal(SIGCONT, cont_handler);
+
+    // Attach to shared memory
+    shmid_p = shared_mem_id;
+    shared_remaining_time = (int *)shmat(shmid_p, NULL, 0);
+    if (shared_remaining_time == (int *)-1)
+    {
+        perror("Process: shmat failed");
+        exit(1);
+    }
+
+    // Initialize remaining time in shared memory
+    *shared_remaining_time = remaining_time;
+
+    sync_clk();
+
+    int currTime = get_clk();
+    preTime = currTime; // Initialize preTime (now a global variable)
+
+    // Print initialization message
+    log_message(LOG_PROCESS, "Process %d initialized with runtime=%d", getpid(), runtime);
+
+    while ((*shared_remaining_time) > 0)
+    {
+        currTime = get_clk();
+        if (currTime - preTime == 1)
+        {
+            preTime = currTime;
+            (*shared_remaining_time)--;
+            log_message(LOG_PROCESS, "Process %d running at time %d, remaining time: %d", 
+            getpid(), get_clk(), *shared_remaining_time);
+            
+            if (*shared_remaining_time % 5 == 0 || *shared_remaining_time == 0)
+            {
+                printf("%sProcess %d Progress:%s\n", COLOR_GREEN, getpid(), COLOR_RESET);
+                print_progress_bar(runtime - *shared_remaining_time, runtime, 20);
+            }
+        }
+        else if (currTime - preTime > 1)
+        {
+            // If the process is not running, wait for a second
+            preTime = currTime;
+        }
+    }
+    // Print completion message
+    log_message(LOG_PROCESS, "Process %d finished at time %d", getpid(), get_clk());
+    printf("%sProcess %d Progress:%s\n", COLOR_GREEN, getpid(), COLOR_RESET);
+    print_progress_bar(runtime, runtime, 20);
+
+    // Notify scheduler of completion
+    if (scheduler_pid > 0)
+    {
+        kill(scheduler_pid, SIGUSR2);
+    }
+
+    exit(0);
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc < 4)
+    {
+        fprintf(stderr, "Usage: %s <runtime> <shared_memory_id> <scheduler_pid>\n", argv[0]);
+        return 1;
+    }
+
+    runtime = atoi(argv[1]);
+    int shared_mem_id = atoi(argv[2]);
+    scheduler_pid = atoi(argv[3]);
+
+    run_process(runtime, shared_mem_id);
+    destroy_clk(0);
+    return 0;
+}
+--- File: src/memory_manager.c ---
+#include "memory_manager.h"
+
+void initialize_memory_Segment(MemoryBlock **Memory_Segment, const int TOTAL_MEMORY_SIZE) {
+    *Memory_Segment = (MemoryBlock *) malloc(sizeof(MemoryBlock));
+    if (*Memory_Segment == NULL) {
+        printf("Memory segment allocation failed\n");
+        return;
+    }
+    (*Memory_Segment)->size = TOTAL_MEMORY_SIZE;
+    (*Memory_Segment)->parent = NULL;
+    (*Memory_Segment)->left_child = NULL;
+    (*Memory_Segment)->right_child = NULL;
+    (*Memory_Segment)->process_pid = -1;
+    (*Memory_Segment)->id_from_file = -1;
+    (*Memory_Segment)->allocated = 0;
+    log_message(LOG_INFO, "Memory segment successfully");
+}
+
+MemoryBlock *initialize_memory_Block(const int size) {
+    MemoryBlock *block = (MemoryBlock *) malloc(sizeof(MemoryBlock));
+    if (block == NULL) {
+        printf("Memory block allocation failed\n");
+        return NULL;
+    }
+    block->size = size;
+    block->left_child = NULL;
+    block->right_child = NULL;
+    block->parent = NULL;
+    block->process_pid = -1;
+    block->id_from_file = -1;
+    block->allocated = 0;
+    return block;
+}
+
+int get_used_space(const MemoryBlock *root) {
+    int remaining_space = 0;
+
+    if (root == NULL) return remaining_space;
+
+    const MemoryBlock *left_child = root->left_child;
+    while (left_child != NULL) {
+        if (left_child->process_pid != -1)
+            remaining_space += left_child->allocated;
+        left_child = left_child->left_child;
+    }
+
+    const MemoryBlock *right_child = root->right_child;
+    while (right_child != NULL) {
+        if (right_child->process_pid != -1)
+            remaining_space += right_child->allocated;
+        right_child = right_child->right_child;
+    }
+
+    return remaining_space;
+}
+
+int highestPowerOf2(const int x) {
+    if (x <= 0) return 1;
+    int power = 1;
+    while (power < x) power *= 2;
+    return power;
+}
+
+MemoryBlock *traverse_MemorySegment(MemoryBlock *root, const int needed_memory) {
+    if (root == NULL || root->size < needed_memory || root->process_pid != -1)
+        return NULL;
+
+    if (root->size == needed_memory && root->process_pid == -1 && (
+            root->size - get_used_space(root) >= needed_memory)) {
+        return root;
+    }
+
+    // Recursively try left child
+    if (root->left_child == NULL) {
+        root->left_child = initialize_memory_Block(root->size / 2);
+        root->left_child->parent = root;
+    }
+    MemoryBlock *left_result = traverse_MemorySegment(root->left_child, needed_memory);
+    if (left_result != NULL) return left_result;
+
+    // Recursively try right child
+    if (root->right_child == NULL) {
+        root->right_child = initialize_memory_Block(root->size / 2);
+        root->right_child->parent = root;
+    }
+    return traverse_MemorySegment(root->right_child, needed_memory);
+}
+
+// Calculate memory block address based on its position in the tree
+void get_block_address(MemoryBlock *root, MemoryBlock *block, int *start, int *end) {
+    if (root == NULL || block == NULL) {
+        *start = -1;
+        *end = -1;
+        return;
+    }
+    
+    // If searching for root itself
+    if (root == block) {
+        *start = 0;
+        *end = root->size - 1;
+        return;
+    }
+    
+    // Traverse the tree to find the block's position
+    int base = 0;
+    int size = root->size;
+    MemoryBlock *current = root;
+    
+    while (current != NULL && current != block) {
+        size = size / 2;
+        
+        // Check if block is in left subtree
+        if (is_in_subtree(current->left_child, block)) {
+            current = current->left_child;
+            // Left subtree keeps same base address
+        }
+        // Check if block is in right subtree
+        else if (is_in_subtree(current->right_child, block)) {
+            current = current->right_child;
+            base = base + size; // Right subtree starts at middle of parent's range
+        }
+        else {
+            // Block not found
+            *start = -1;
+            *end = -1;
+            return;
+        }
+    }
+    
+    *start = base;
+    *end = base + block->size - 1;
+}
+
+// Helper function to check if a node is in a subtree
+bool is_in_subtree(MemoryBlock *root, MemoryBlock *node) {
+    if (root == NULL) return false;
+    if (root == node) return true;
+    return is_in_subtree(root->left_child, node) || is_in_subtree(root->right_child, node);
+}
+
+bool allocate_memory(MemoryBlock *root, const int id_from_file, const int process_size , int time){
+    const int memory_needed = highestPowerOf2(process_size);
+
+    if (root == NULL) {
+        initialize_memory_Segment(&root, 1024);
+    }
+
+    MemoryBlock *new_block = traverse_MemorySegment(root, memory_needed);
+    if (new_block != NULL) {
+        new_block->id_from_file = id_from_file;
+        new_block->allocated = process_size;
+        
+        // Calculate block address
+        int start = -1, end = -1;
+        get_block_address(root, new_block, &start, &end);
+        
+        log_message(
+            LOG_INFO, "Memory segment allocated successfully for processID=%d MEMORY allocated=%d memory needed=%d from=%d to=%d\n",
+            id_from_file, new_block->allocated, new_block->size, start, end);
+        
+        // Log the memory allocation event
+        log_memory_event(time, 1, process_size, id_from_file, start, end);
+        return true;
+    }
+    // log_message(LOG_INFO, "Memory segment cant allocate memory for processID=%d needed=%d\n", id_from_file,
+    //             process_size);
+    return false;
+}
+
+//search by pid or id_from_file
+MemoryBlock *get_Process_Memory_Segment(MemoryBlock *root, const int id_from_file, const int pid) {
+    if (root == NULL)
+        return NULL;
+
+    if ((id_from_file != -1 && root->id_from_file == id_from_file) || (pid != -1 && root->process_pid == pid))
+        return root;
+
+    MemoryBlock *left_result = get_Process_Memory_Segment(root->left_child, id_from_file, pid);
+    if (left_result) return left_result;
+
+    return get_Process_Memory_Segment(root->right_child, id_from_file, pid);
+}
+
+void update_id(const int pid_from_file, const pid_t pid, MemoryBlock *root) {
+    MemoryBlock *found = get_Process_Memory_Segment(root, pid_from_file, -1);
+
+    if (found) {
+        found->process_pid = pid;
+    }
+}
+
+void merge_buddy_blocks(MemoryBlock *block) {
+    // If we don't have a parent, we can't merge
+    if (block == NULL || block->parent == NULL)
+        return;
+
+    MemoryBlock *parent = block->parent;
+    MemoryBlock *buddy = (parent->left_child == block) ? parent->right_child : parent->left_child;
+
+    // If buddy exists and is not allocated, we can merge
+    if (buddy != NULL && buddy->allocated == 0 &&
+        buddy->left_child == NULL && buddy->right_child == NULL) {
+        // Free the children
+        free(parent->left_child);
+        free(parent->right_child);
+
+        // Reset children pointers to NULL
+        parent->left_child = NULL;
+        parent->right_child = NULL;
+
+        // Recursively try to merge the parent with its buddy
+        merge_buddy_blocks(parent);
+    }
+}
+
+bool deallocate_memory(MemoryBlock *root, const pid_t pid, int time) {
+    MemoryBlock *to_delete = get_Process_Memory_Segment(root, -1, pid);
+    
+    if (to_delete == NULL)
+        return false;
+    
+    int start = -1, end = -1;
+    get_block_address(root, to_delete, &start, &end);
+    
+    // Log deallocated memory before actually deallocating it
+    log_memory_event(time, 0, to_delete->allocated, to_delete->id_from_file, start, end);
+    log_message(LOG_INFO, "Memory segment deallocated for process ID=%d, memory freed=%d bytes, address range=[%d-%d]",
+               to_delete->id_from_file, to_delete->allocated, start, end);
+    
+    to_delete->process_pid = -1;
+    to_delete->id_from_file = -1;
+    to_delete->allocated = 0;
+    merge_buddy_blocks(to_delete);
+    
+    return true;
+}
+
+void log_memory_event(int time, bool allocate, int bytes, int process_id, int start, int end) {
+    FILE *mem_file = fopen("memory.log", "a");
+    if (!mem_file) {
+        perror("Failed to open memory.log");
+        return;
+    }
+    if (allocate) {
+        fprintf(mem_file, "At time %d allocated %d bytes for process %d from %d to %d\n",
+                time, bytes, process_id, start, end);
+    } else {
+        fprintf(mem_file, "At time %d freed %d bytes from process %d from %d to %d\n",
+                time, bytes, process_id, start, end);
+    }
+    fclose(mem_file);
+}
+
+void destroy_memory_segment(MemoryBlock *root) {
+    // Base case: if root is NULL, nothing to free
+    if (root == NULL) {
+        return;
+    }
+
+    // Recursively destroy left and right subtrees first (post-order traversal)
+    destroy_memory_segment(root->left_child);
+    destroy_memory_segment(root->right_child);
+
+    // Debug information (optional)
+    if (root->allocated > 0) {
+        printf("Freeing block with PID %d, size %d\n", root->process_pid, root->size);
+    }
+
+    // Clear the data (optional, but can help catch use-after-free bugs)
+    root->left_child = NULL;
+    root->right_child = NULL;
+    root->parent = NULL;
+    root->process_pid = -1;
+    root->size = 0;
+    root->allocated = 0;
+    root->id_from_file = -1;
+
+    // Finally, free the block itself
+    free(root);
+    root = NULL;
+}
+
+void print_memory_segment(const MemoryBlock *root, const int level) {
+    if (root == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < level; i++) {
+        printf("  ");
+    }
+
+    printf("Block [Size: %d] ", root->size);
+
+    if (root->allocated > 0) {
+        printf("[Allocated: %d, PID: %d, ID: %d]",
+               root->allocated, root->process_pid, root->id_from_file);
+    } else {
+        printf("[Free]");
+    }
+
+    printf("\n");
+
+    print_memory_segment(root->left_child, level + 1);
+    print_memory_segment(root->right_child, level + 1);
+}
+
+void print_memory(const MemoryBlock *root) {
+    if (root == NULL) {
+        printf("Memory tree is empty.\n");
+        return;
+    }
+
+    printf("\n===== MEMORY ALLOCATION TREE =====\n");
+    print_memory_segment(root, 0);
+    printf("=================================\n\n");
+}
+
+
