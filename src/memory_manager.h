@@ -3,8 +3,7 @@
 
 #include "headers.h"
 
-typedef struct MemoryBlock
-{
+typedef struct MemoryBlock {
     int size;
     int allocated;
     struct MemoryBlock *parent;
@@ -14,25 +13,34 @@ typedef struct MemoryBlock
     int id_from_file;
 } MemoryBlock;
 
-extern MemoryBlock *mp[10000];
-extern MemoryBlock *Memory_Segment; // root node of the memory segment
-extern const int TOTAL_MEMORY_SIZE;
-extern int allocated_memory;
-extern int free_memory;
+void initialize_memory_Segment(MemoryBlock **Memory_Segment, const int TOTAL_MEMORY_SIZE);
 
-void initialize_memory_Segment();
-MemoryBlock *initialize_memory_Block(int size);
-bool is_Memory_Available(PCB *process);
-MemoryBlock *traverse_MemorySegment(MemoryBlock *root, int needed_memory);
-int highestPowerOf2(int x);
-bool allocate_memory(pid_t pid,int size);
-bool try_allocate_memory(pid_t pid,int size);
-bool deallocate_memory(pid_t pid);
-void update_id(int pid_from_file, pid_t pid);
-MemoryBlock *get_Process_Memory_Segment(MemoryBlock *root, int pid);
-MemoryBlock *try_get_Process_Memory_Segment(MemoryBlock *root, int id_from_file);
-void printMemorySegment(MemoryBlock *root);
+MemoryBlock *initialize_memory_Block(const int size);
 
-// TODO FREE THE MEMORY_SEGMENT
+int get_used_space(const MemoryBlock *root);
+
+MemoryBlock *traverse_MemorySegment(MemoryBlock *root, const int needed_memory);
+
+int highestPowerOf2(const int x);
+
+bool allocate_memory(MemoryBlock *root, const pid_t process_pid, const int process_size,int time);
+
+bool deallocate_memory(MemoryBlock *root, const pid_t process_pid,int time);
+
+void merge_buddy_blocks(MemoryBlock *block);
+
+MemoryBlock *get_Process_Memory_Segment(MemoryBlock *root, const int id_from_file, const int pid);
+
+void update_id(const int pid_from_file, const pid_t pid, MemoryBlock *root);
+
+void print_memory_segment(const MemoryBlock *root, const int level);
+
+void print_memory(const MemoryBlock *root);
+
+void destroy_memory_segment(MemoryBlock *root);
+
+bool is_in_subtree(MemoryBlock *root, MemoryBlock *node);
+
+void log_memory_event(int time, bool allocate, int bytes, int process_id, int start, int end);
 
 #endif

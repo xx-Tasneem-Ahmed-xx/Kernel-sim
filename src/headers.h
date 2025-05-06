@@ -57,7 +57,8 @@ typedef enum {
     LOG_PROCESS, // Process-related events
     LOG_SYSTEM,  // System events
     LOG_STAT,    // Statistics
-    LOG_ERROR    // Error messages
+    LOG_ERROR,    // Error messages
+    LOG_WARNING,  // Warning messages
 } LogLevel;
 
 
